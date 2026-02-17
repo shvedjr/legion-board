@@ -8,23 +8,32 @@
     <style>
         body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; touch-action: none; }
         #canvas-container { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+        
+        /* Площадка теперь вертикальная */
         #court-wrapper { 
             flex-grow: 1; position: relative; 
             background-image: url('basketbolnaya-ploshchadka.jpg'); 
-            background-size: cover; background-position: center;
+            background-size: contain; /* Чтобы картинка вписалась целиком */
+            background-repeat: no-repeat;
+            background-position: center;
+            background-color: #004d40; /* Цвет фона, если картинка узкая */
         }
+        
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        
         #controls { 
-            height: 70px; background: #1a1a1a; display: flex; 
+            height: 80px; background: #1a1a1a; display: flex; 
             align-items: center; justify-content: space-around; border-top: 2px solid #333; 
+            padding-bottom: env(safe-area-inset-bottom); /* Отступ для новых iPhone */
         }
+        
         button { 
-            padding: 10px 25px; border-radius: 8px; border: none; 
-            color: white; font-weight: bold; font-size: 14px; cursor: pointer; 
+            padding: 12px 30px; border-radius: 10px; border: none; 
+            color: white; font-weight: bold; font-size: 16px; cursor: pointer; 
         }
-        .btn-record { background: #e74c3c; } /* Красная */
-        .btn-record.active { background: #2ecc71; box-shadow: 0 0 10px #2ecc71; } /* Зеленая при записи */
-        .btn-save { background: #3498db; } /* Синяя */
+        .btn-record { background: #e74c3c; }
+        .btn-record.active { background: #2ecc71; box-shadow: 0 0 15px #2ecc71; }
+        .btn-save { background: #3498db; }
     </style>
 </head>
 <body>
@@ -45,12 +54,14 @@
         
         let isRecording = false;
         let animationData = [];
+        
+        // Начальные позиции игроков (уже под вертикальную ориентацию)
         let players = [
-            { id: 1, x: 0.5, y: 0.8, label: '1' },
-            { id: 2, x: 0.3, y: 0.7, label: '2' },
-            { id: 3, x: 0.7, y: 0.7, label: '3' },
-            { id: 4, x: 0.2, y: 0.5, label: '4' },
-            { id: 5, x: 0.8, y: 0.5, label: '5' }
+            { id: 1, x: 0.5, y: 0.9, label: '1' },
+            { id: 2, x: 0.2, y: 0.8, label: '2' },
+            { id: 3, x: 0.8, y: 0.8, label: '3' },
+            { id: 4, x: 0.3, y: 0.6, label: '4' },
+            { id: 5, x: 0.7, y: 0.6, label: '5' }
         ];
 
         function draw() {
@@ -58,11 +69,19 @@
             players.forEach(p => {
                 const px = p.x * canvas.width;
                 const py = p.y * canvas.height;
-                ctx.beginPath(); ctx.arc(px, py, 18, 0, Math.PI*2);
-                ctx.fillStyle = "#e67e22"; ctx.fill();
-                ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
-                ctx.fillStyle = "white"; ctx.font = "bold 14px Arial"; ctx.textAlign = "center";
-                ctx.fillText(p.label, px, py + 5);
+                
+                // Тень
+                ctx.beginPath(); ctx.arc(px + 2, py + 2, 20, 0, Math.PI*2);
+                ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.fill();
+
+                // Игрок
+                ctx.beginPath(); ctx.arc(px, py, 20, 0, Math.PI*2);
+                ctx.fillStyle = "#ff6b00"; ctx.fill();
+                ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke();
+                
+                // Номер
+                ctx.fillStyle = "white"; ctx.font = "bold 18px Arial"; ctx.textAlign = "center";
+                ctx.fillText(p.label, px, py + 7);
             });
         }
 
@@ -71,17 +90,18 @@
             const btn = document.getElementById('recBtn');
             btn.innerText = isRecording ? "⏹ СТОП" : "⏺ ЗАПИСЬ";
             btn.classList.toggle('active');
-            if (isRecording) animationData = [];
+            if (isRecording) {
+                animationData = [];
+                tg.HapticFeedback.impactOccurred('medium');
+            }
         }
 
-        // Запись кадров
         setInterval(() => {
             if (isRecording) {
                 animationData.push(players.map(p => ({x: p.x.toFixed(3), y: p.y.toFixed(3)})));
             }
-        }, 200);
+        }, 150);
 
-        // Управление игроками (Drag & Drop)
         let selected = null;
         function getCoords(e) {
             const t = e.touches ? e.touches[0] : e;
@@ -91,8 +111,10 @@
 
         const start = e => {
             const c = getCoords(e);
-            selected = players.find(p => Math.hypot(p.x - c.x, p.y - c.y) < 0.05);
+            selected = players.find(p => Math.hypot(p.x - c.x, p.y - c.y) < 0.08);
+            if(selected) tg.HapticFeedback.selectionChanged();
         };
+        
         const move = e => {
             if (selected) {
                 const c = getCoords(e);
@@ -115,11 +137,10 @@
             draw();
         }
 
-        // ОТПРАВКА ДАННЫХ В БОТ
         function sendData() {
             const result = {
                 animation: animationData,
-                final: players.map(p => ({label: p.label, x: p.x.toFixed(3), y: p.y.toFixed(3)}))
+                final: players.map(p => ({label: p.label, x: p.x, y: p.y}))
             };
             tg.sendData(JSON.stringify(result));
             tg.close();
