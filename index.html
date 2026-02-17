@@ -5,58 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { 
-            margin: 0; 
-            background: #000; 
-            overflow: hidden; 
-            font-family: sans-serif; 
-            touch-action: none;
-        }
-        #canvas-container { 
-            position: relative; 
-            width: 100vw; 
-            height: 100vh; 
-            display: flex; 
-            flex-direction: column; 
-        }
-        canvas { 
-            display: block; 
-            flex-grow: 1; 
-            /* Используем твой файл */
+        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; touch-action: none; }
+        #canvas-container { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+        #court-wrapper { 
+            flex-grow: 1; position: relative; 
             background-image: url('basketbolnaya-ploshchadka.jpg'); 
-            /* Поворачиваем картинку на 90 градусов и растягиваем по размеру */
-            background-size: cover;
-            background-position: center;
-            /* В CSS проще всего повернуть сам контейнер фона или использовать transform, 
-               но здесь мы применим поворот через свойство canvas для точности */
+            background-size: cover; background-position: center;
         }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
         #controls { 
-            height: 80px; 
-            background: #111; 
-            display: flex; 
-            align-items: center; 
-            justify-content: space-around; 
-            border-top: 1px solid #333; 
+            height: 80px; background: #111; display: flex; 
+            align-items: center; justify-content: space-around; border-top: 1px solid #333; 
         }
-        button { 
-            padding: 12px 20px; border-radius: 10px; border: none; 
-            color: white; font-weight: bold; font-size: 14px; cursor: pointer;
-            text-transform: uppercase;
-        }
-        .btn-record { background: #e74c3c; box-shadow: 0 4px 0 #c0392b; }
-        .btn-record.active { background: #2ecc71; box-shadow: 0 4px 0 #27ae60; }
-        .btn-save { background: #f39c12; box-shadow: 0 4px 0 #d35400; }
-        button:active { transform: translateY(2px); box-shadow: none; }
+        button { padding: 12px 20px; border-radius: 10px; border: none; color: white; font-weight: bold; cursor: pointer; }
+        .btn-record { background: #e74c3c; }
+        .btn-record.active { background: #2ecc71; border: 2px solid white; }
+        .btn-save { background: #f39c12; }
     </style>
 </head>
 <body>
     <div id="canvas-container">
-        <div id="wrapper" style="width: 100%; height: 100%; overflow: hidden; position: relative;">
-             <canvas id="court"></canvas>
-        </div>
+        <div id="court-wrapper"><canvas id="court"></canvas></div>
         <div id="controls">
             <button id="recBtn" class="btn-record" onclick="toggleRecord()">⏺ ЗАПИСЬ</button>
-            <button class="btn-save" onclick="sendData()">💾 СОХРАНИТЬ</button>
+            <button id="saveBtn" class="btn-save" onclick="sendData()">💾 СОХРАНИТЬ</button>
         </div>
     </div>
 
@@ -66,106 +38,109 @@
 
         const canvas = document.getElementById('court');
         const ctx = canvas.getContext('2d');
-        const bgImg = new Image();
-        bgImg.src = 'basketbolnaya-ploshchadka.jpg';
-
+        
         let isRecording = false;
         let animationData = [];
-        
-        // Позиции теперь для вертикального поля
         let players = [
             { id: 1, x: 0.5, y: 0.85, label: '1' },
             { id: 2, x: 0.2, y: 0.7, label: '2' },
             { id: 3, x: 0.8, y: 0.7, label: '3' },
-            { id: 4, x: 0.3, y: 0.55, label: '4' },
-            { id: 5, x: 0.7, y: 0.55, label: '5' }
+            { id: 4, x: 0.35, y: 0.5, label: '4' },
+            { id: 5, x: 0.65, y: 0.5, label: '5' }
         ];
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Сохраняем состояние, поворачиваем контекст для отрисовки фона
-            ctx.save();
-            ctx.translate(canvas.width / 2, canvas.height / 2);
-            ctx.rotate(Math.PI / 2); // Поворот на 90 градусов
-            // Рисуем картинку так, чтобы она заполнила всё пространство
-            ctx.drawImage(bgImg, -canvas.height / 2, -canvas.width / 2, canvas.height, canvas.width);
-            ctx.restore();
-
-            // Рисуем игроков поверх повернутого фона
             players.forEach(p => {
                 const px = p.x * canvas.width;
                 const py = p.y * canvas.height;
-                
-                ctx.beginPath();
-                ctx.arc(px, py, 20, 0, Math.PI*2);
-                ctx.fillStyle = "#e74c3c";
-                ctx.fill();
-                ctx.strokeStyle = "white";
-                ctx.lineWidth = 3;
-                ctx.stroke();
-                
-                ctx.fillStyle = "white";
-                ctx.font = "bold 16px Arial";
-                ctx.textAlign = "center";
+                ctx.beginPath(); ctx.arc(px, py, 20, 0, Math.PI*2);
+                ctx.fillStyle = "#e74c3c"; ctx.fill();
+                ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke();
+                ctx.fillStyle = "white"; ctx.font = "bold 16px Arial"; ctx.textAlign = "center";
                 ctx.fillText(p.label, px, py + 6);
             });
         }
 
-        bgImg.onload = draw;
-
-        // --- Логика записи и движения ---
         function toggleRecord() {
             isRecording = !isRecording;
             const btn = document.getElementById('recBtn');
             btn.innerText = isRecording ? "⏹ СТОП" : "⏺ ЗАПИСЬ";
             btn.classList.toggle('active');
+            if (isRecording) animationData = [];
         }
 
+        // Записываем данные реже (раз в 200мс) и округляем, чтобы не превысить лимит Telegram
         setInterval(() => {
             if (isRecording) {
-                animationData.push(players.map(p => ({ x: p.x.toFixed(3), y: p.y.toFixed(3) })));
+                const frame = players.map(p => ({
+                    x: Math.round(p.x * 1000) / 1000,
+                    y: Math.round(p.y * 1000) / 1000
+                }));
+                animationData.push(frame);
             }
-        }, 100);
+        }, 200);
 
-        let selectedPlayer = null;
         function getCoords(e) {
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            return { x: clientX, y: clientY };
+            const t = e.touches ? e.touches[0] : e;
+            const rect = canvas.getBoundingClientRect();
+            return { x: t.clientX - rect.left, y: t.clientY - rect.top };
         }
 
-        const startMove = e => {
+        let selected = null;
+        const start = e => {
             const c = getCoords(e);
-            selectedPlayer = players.find(p => Math.hypot(p.x * canvas.width - c.x, p.y * canvas.height - c.y) < 30);
+            selected = players.find(p => Math.hypot(p.x * canvas.width - c.x, p.y * canvas.height - c.y) < 30);
         };
-        const doMove = e => {
-            if (selectedPlayer) {
+        const move = e => {
+            if (selected) {
                 const c = getCoords(e);
-                selectedPlayer.x = c.x / canvas.width;
-                selectedPlayer.y = c.y / canvas.height;
+                selected.x = Math.max(0, Math.min(1, c.x / canvas.width));
+                selected.y = Math.max(0, Math.min(1, c.y / canvas.height));
                 draw();
             }
         };
 
-        canvas.addEventListener('mousedown', startMove);
-        canvas.addEventListener('mousemove', doMove);
-        window.addEventListener('mouseup', () => selectedPlayer = null);
-        canvas.addEventListener('touchstart', startMove);
-        canvas.addEventListener('touchmove', doMove);
-        window.addEventListener('touchend', () => selectedPlayer = null);
+        canvas.addEventListener('mousedown', start);
+        window.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', () => selected = null);
+        canvas.addEventListener('touchstart', start);
+        window.addEventListener('touchmove', move);
+        window.addEventListener('touchend', () => selected = null);
 
         function resize() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight - 80;
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
             draw();
         }
-        window.addEventListener('resize', resize);
-        
+
         function sendData() {
-            tg.sendData(JSON.stringify({ animation: animationData, final: players }));
-            tg.close();
+            try {
+                const btn = document.getElementById('saveBtn');
+                btn.innerText = "ОТПРАВКА...";
+                
+                const result = {
+                    animation: animationData,
+                    final: players
+                };
+                
+                // Проверка: Telegram принимает данные только строкой
+                const stringData = JSON.stringify(result);
+                
+                if (stringData.length > 4096) {
+                    // Если данных слишком много, пробуем отправить только финал
+                    tg.sendData(JSON.stringify({ final: players, error: "too_much_data" }));
+                } else {
+                    tg.sendData(stringData);
+                }
+                
+                tg.close();
+            } catch (e) {
+                alert("Ошибка сохранения: " + e.message);
+            }
         }
+
+        window.addEventListener('resize', resize);
         resize();
     </script>
 </body>
