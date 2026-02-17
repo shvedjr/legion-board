@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Legion Tactics Pro</title>
+    <title>Legion Tactics Ultimate</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; position: fixed; font-family: sans-serif; }
@@ -22,7 +22,7 @@
         .btn-orange { background: #ff6b00; color: black; }
     </style>
 </head>
-<body>
+<body onclick="tryUnlockAudio()">
     <div id="app">
         <div id="toolbar">
             <button class="tool-btn active" id="t-move" onclick="setTool('move')">🏃 ИГРОКИ</button>
@@ -35,7 +35,7 @@
             <div id="player-controls">
                 <div class="row">
                     <span id="curr">0.0s</span>
-                    <input type="range" id="timeline" value="0" oninput="seek(this.value)">
+                    <input type="range" id="timeline" min="0" value="0" oninput="seek(this.value)">
                     <span id="total">0.0s</span>
                 </div>
                 <div class="row">
@@ -51,7 +51,6 @@
     </div>
 
 <script>
-    // Инициализация Telegram
     const tg = window.Telegram.WebApp;
     tg.ready();
     tg.expand();
@@ -59,15 +58,37 @@
     const canvas = document.getElementById('court');
     const ctx = canvas.getContext('2d');
     
-    // Прямой метод для максимальной совместимости с Pixel
-    function doVibrate(style) {
+    // Попытка разблокировать аудио-тактику для Pixel
+    let audioCtx = null;
+    function tryUnlockAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    // Супер-комбо вибрация
+    function forceVibrate(style) {
+        // 1. Метод Telegram
         if (tg.HapticFeedback) {
             if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
-            else if (style === 'light') tg.HapticFeedback.impactOccurred('light');
-            else tg.HapticFeedback.impactOccurred('medium');
+            else tg.HapticFeedback.impactOccurred(style || 'medium');
         }
-        // Запасной вариант для Android
-        if (navigator.vibrate) navigator.vibrate(style === 'success' ? [30, 50] : 40);
+        // 2. Стандартный метод (Pixel/Android)
+        if (navigator.vibrate) {
+            navigator.vibrate(style === 'success' ? [30, 50, 30] : 45);
+        }
+        // 3. Audio Hack (Pixel-специфично)
+        if (audioCtx && audioCtx.state === 'running') {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(1, audioCtx.currentTime); // Инфразвук для мотора
+            gain.gain.setValueAtTime(0.01, audioCtx.currentTime);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.05);
+        }
     }
 
     let tool = 'move';
@@ -90,14 +111,14 @@
 
     function undo() {
         if (history.length === 0) return;
-        doVibrate('light');
+        forceVibrate('light');
         const last = JSON.parse(history.pop());
         players = last.players; screens = last.screens; ballId = last.ballId;
         render(players, screens, ballId);
     }
 
     function setTool(t) {
-        doVibrate('light');
+        forceVibrate('light');
         tool = t;
         document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
         document.getElementById('t-' + t).classList.add('active');
@@ -112,12 +133,17 @@
         });
         pos.forEach(p => {
             const px = p.x * canvas.width; const py = p.y * canvas.height;
+            
+            // Основной круг
             ctx.beginPath(); ctx.arc(px, py, 22, 0, Math.PI*2);
             ctx.fillStyle = "#bdc3c7"; ctx.fill();
+            
+            // Визуальный отклик (оранжевая рамка)
             let isMoving = Object.values(activeTouches).some(t => t.target === p);
             ctx.strokeStyle = isMoving ? "#ff6b00" : "#000"; 
-            ctx.lineWidth = isMoving ? 5 : 3; 
+            ctx.lineWidth = isMoving ? 6 : 3; 
             ctx.stroke();
+            
             ctx.fillStyle = "#000"; ctx.font = "bold 16px Arial"; ctx.textAlign = "center";
             ctx.fillText(p.label, px, py + 6);
             if (p.id === bId) {
@@ -130,6 +156,7 @@
     canvas.addEventListener('touchstart', (e) => {
         if (isPlay) return;
         saveState();
+        tryUnlockAudio();
         for (let i = 0; i < e.changedTouches.length; i++) {
             const touch = e.changedTouches[i];
             const r = canvas.getBoundingClientRect();
@@ -137,25 +164,16 @@
             
             if (tool === 'ball') {
                 const hit = players.find(pl => Math.hypot(pl.x - p.x, pl.y - p.y) < 0.1);
-                if (hit) { 
-                    ballId = hit.id; 
-                    doVibrate('success');
-                }
+                if (hit) { ballId = hit.id; forceVibrate('success'); }
             } else if (tool === 'screen') {
                 const hit = screens.find(s => Math.hypot(s.x - p.x, s.y - p.y) < 0.08);
-                if (hit) {
-                    activeTouches[touch.identifier] = { target: hit };
-                    doVibrate('medium');
-                } else { 
-                    let n = {x: p.x, y: p.y}; screens.push(n); 
-                    activeTouches[touch.identifier] = { target: n };
-                    doVibrate('medium');
-                }
+                if (hit) { activeTouches[touch.identifier] = { target: hit }; forceVibrate('medium'); }
+                else { let n = {x: p.x, y: p.y}; screens.push(n); activeTouches[touch.identifier] = { target: n }; forceVibrate('medium'); }
             } else {
                 const hit = players.find(pl => Math.hypot(pl.x - p.x, pl.y - p.y) < 0.1);
                 if (hit) {
                     activeTouches[touch.identifier] = { target: hit };
-                    doVibrate('medium');
+                    forceVibrate('heavy'); // Усиленный импульс для Pixel
                 }
             }
         }
@@ -184,7 +202,7 @@
     });
 
     function toggleRec() {
-        doVibrate('medium');
+        forceVibrate('medium');
         isRec = !isRec;
         const btn = document.getElementById('rec-btn');
         btn.innerText = isRec ? "⏹ СТОП" : "⏺ ЗАПИСЬ";
@@ -200,7 +218,7 @@
     }, 40);
 
     function togglePlay() {
-        doVibrate('light');
+        forceVibrate('light');
         isPlay = !isPlay;
         if (isPlay) {
             const anim = setInterval(() => {
@@ -217,7 +235,7 @@
     function seek(v) { currentIdx = parseInt(v); if(recordedFrames[currentIdx]) { const f = recordedFrames[currentIdx]; render(f.pos, f.scs, f.bId); } }
 
     function saveData() {
-        doVibrate('success');
+        forceVibrate('success');
         if (recordedFrames.length === 0) return tg.showAlert("Запишите движение!");
         tg.sendData(JSON.stringify({ frames: recordedFrames }));
         tg.close();
