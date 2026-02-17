@@ -5,67 +5,158 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { margin: 0; background: #222; overflow: hidden; font-family: sans-serif; }
-        canvas { display: block; background-image: url('https://img.freepik.com/premium-vector/top-view-basketball-court-background_23-2148281350.jpg'); background-size: cover; }
-        #controls { position: absolute; bottom: 20px; width: 100%; text-align: center; }
-        button { padding: 10px 20px; border-radius: 8px; border: none; background: #0088cc; color: white; }
+        body { 
+            margin: 0; 
+            background: #1a1a1a; 
+            overflow: hidden; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            touch-action: none;
+        }
+        #canvas-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        canvas { 
+            display: block; 
+            /* Ссылка на качественный фон баскетбольного поля */
+            background-image: url('https://img.freepik.com/free-vector/top-view-basketball-court-background_23-2148281350.jpg?t=st=1715673852~exp=1715677452~hmac=84022883f3e18a937a09d01f56360c7650f9689f078a631165d6c8e317e0767c&w=1380');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            flex-grow: 1;
+        }
+        #controls { 
+            height: 80px;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-top: 2px solid #444;
+        }
+        button { 
+            padding: 12px 25px; 
+            border-radius: 25px; 
+            border: none; 
+            background: linear-gradient(145deg, #0088cc, #0077b5);
+            color: white; 
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:active { transform: scale(0.95); }
     </style>
 </head>
 <body>
-    <canvas id="court"></canvas>
-    <div id="controls">
-        <button onclick="sendData()">Сохранить схему</button>
+    <div id="canvas-container">
+        <canvas id="court"></canvas>
+        <div id="controls">
+            <button onclick="sendData()">💾 Сохранить схему</button>
+        </div>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
-        tg.expand(); // Развернуть на весь экран
+        tg.expand();
 
         const canvas = document.getElementById('court');
         const ctx = canvas.getContext('2d');
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight - 80;
+        
+        // Подстройка размера под экран устройства
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight - 80;
+            draw();
+        }
 
+        // Пятерка игроков с начальными позициями
         let players = [
-            { id: 1, x: 100, y: 100, color: 'red', label: 'PG' },
-            { id: 2, x: 200, y: 150, color: 'blue', label: 'C' }
+            { id: 1, x: 0.5, y: 0.8, color: '#e74c3c', label: '1', pos: 'PG' },
+            { id: 2, x: 0.3, y: 0.6, color: '#e74c3c', label: '2', pos: 'SG' },
+            { id: 3, x: 0.7, y: 0.6, color: '#e74c3c', label: '3', pos: 'SF' },
+            { id: 4, x: 0.4, y: 0.3, color: '#e74c3c', label: '4', pos: 'PF' },
+            { id: 5, x: 0.6, y: 0.2, color: '#e74c3c', label: '5', pos: 'C' }
         ];
 
         let selectedPlayer = null;
 
+        // Переводим относительные координаты (0-1) в пиксели
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             players.forEach(p => {
+                const px = p.x * canvas.width;
+                const py = p.y * canvas.height;
+
+                // Рисуем тень фишки
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, 20, 0, Math.PI * 2);
-                ctx.fillStyle = p.color;
+                ctx.arc(px + 2, py + 2, 22, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
                 ctx.fill();
+
+                // Рисуем фишку
+                ctx.beginPath();
+                ctx.arc(px, py, 20, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 3;
+                ctx.fill();
+                ctx.stroke();
+
+                // Текст (номер игрока)
                 ctx.fillStyle = "white";
-                ctx.fillText(p.label, p.x - 7, p.y + 5);
+                ctx.font = "bold 16px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText(p.label, px, py + 6);
+                
+                // Подпись позиции под фишкой
+                ctx.fillStyle = "rgba(255,255,255,0.8)";
+                ctx.font = "10px Arial";
+                ctx.fillText(p.pos, px, py + 35);
             });
         }
 
-        canvas.addEventListener('mousedown', e => {
-            selectedPlayer = players.find(p => Math.hypot(p.x - e.clientX, p.y - e.clientY) < 20);
-        });
+        // Поддержка и мышки, и тачскрина
+        function handleStart(e) {
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
+            selectedPlayer = players.find(p => {
+                return Math.hypot(p.x * canvas.width - clientX, p.y * canvas.height - clientY) < 30;
+            });
+        }
 
-        canvas.addEventListener('mousemove', e => {
+        function handleMove(e) {
             if (selectedPlayer) {
-                selectedPlayer.x = e.clientX;
-                selectedPlayer.y = e.clientY;
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                
+                selectedPlayer.x = clientX / canvas.width;
+                selectedPlayer.y = clientY / canvas.height;
                 draw();
             }
-        });
+        }
 
-        window.addEventListener('mouseup', () => { selectedPlayer = null; });
+        function handleEnd() { selectedPlayer = null; }
 
+        canvas.addEventListener('mousedown', handleStart);
+        canvas.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
+
+        canvas.addEventListener('touchstart', handleStart);
+        canvas.addEventListener('touchmove', handleMove);
+        window.addEventListener('touchend', handleEnd);
+
+        window.addEventListener('resize', resize);
+        
         function sendData() {
-            // Передаем координаты игроков обратно в бот
+            // Отправляем данные в Telegram
             tg.sendData(JSON.stringify(players));
             tg.close();
         }
 
-        draw();
+        resize();
     </script>
 </body>
 </html>
