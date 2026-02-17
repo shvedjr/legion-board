@@ -8,29 +8,19 @@
     <style>
         body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; position: fixed; font-family: sans-serif; }
         #app { display: flex; flex-direction: column; height: 100%; width: 100%; }
-        
-        #court-wrapper { 
-            position: relative; flex: 1; width: 100%;
-            background-image: url('basketbolnaya-ploshchadka.jpg');
-            background-size: contain; background-repeat: no-repeat; background-position: center;
-            background-color: #002d20;
-        }
-        
+        #court-wrapper { position: relative; flex: 1; background-image: url('basketbolnaya-ploshchadka.jpg'); background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #002d20; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; touch-action: none; }
-
-        #toolbar { background: #1a1a1a; display: flex; justify-content: space-around; padding: 10px; border-bottom: 1px solid #333; }
-        .tool-btn { padding: 10px; border-radius: 8px; border: 1px solid #444; background: #222; color: white; font-size: 14px; font-weight: bold; }
+        #toolbar { background: #1a1a1a; display: flex; justify-content: space-around; padding: 8px; border-bottom: 1px solid #333; }
+        .tool-btn { padding: 10px; border-radius: 8px; border: 1px solid #444; background: #222; color: white; font-size: 13px; font-weight: bold; }
         .tool-btn.active { border-color: #ff6b00; background: #333; color: #ff6b00; }
-        .undo-btn { background: #442222; border-color: #663333; }
-
         #controls-area { background: #111; padding-bottom: env(safe-area-inset-bottom); z-index: 100; }
         #player-controls { display: none; flex-direction: column; gap: 8px; padding: 12px; border-top: 1px solid #333; }
         .row { display: flex; justify-content: space-around; align-items: center; color: white; font-size: 14px; }
         input[type=range] { flex: 1; margin: 0 15px; accent-color: #ff6b00; }
-        
         #main-nav { height: 75px; display: flex; justify-content: space-around; align-items: center; }
-        .btn { padding: 12px 24px; border-radius: 10px; border: none; background: #333; color: white; font-weight: bold; }
+        .btn { padding: 12px 20px; border-radius: 10px; border: none; background: #333; color: white; font-weight: bold; }
         .btn-orange { background: #ff6b00; color: black; }
+        .counter { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 20px; color: #ff6b00; font-weight: bold; font-size: 12px; z-index: 20; }
     </style>
 </head>
 <body>
@@ -39,27 +29,27 @@
             <button class="tool-btn active" id="t-move" onclick="setTool('move')">🏃 ИГРОК</button>
             <button class="tool-btn" id="t-ball" onclick="setTool('ball')">🏀 МЯЧ</button>
             <button class="tool-btn" id="t-screen" onclick="setTool('screen')">┳ ЗАСЛОН</button>
-            <button class="tool-btn undo-btn" onclick="undo()">↩ ОТМЕНА</button>
+            <button class="tool-btn" style="background:#332222" onclick="undo()">↩ НАЗАД</button>
         </div>
 
-        <div id="court-wrapper"><canvas id="court"></canvas></div>
+        <div id="court-wrapper">
+            <div class="counter" id="frame-count">Кадров: 0</div>
+            <canvas id="court"></canvas>
+        </div>
         
-        <div id="player-controls">
-            <div class="row">
-                <span id="curr">0.0s</span>
-                <input type="range" id="timeline" value="0" oninput="seek(this.value)">
-                <span id="total">0.0s</span>
-            </div>
-            <div class="row">
-                <button class="btn btn-orange" id="play-btn" onclick="togglePlay()">▶ ПУСК</button>
-                <button class="btn" onclick="location.reload()">🔄 СБРОС</button>
-            </div>
-        </div>
-
         <div id="controls-area">
+            <div id="player-controls">
+                <div class="row">
+                    <input type="range" id="timeline" value="0" step="0.01" oninput="seek(this.value)">
+                </div>
+                <div class="row">
+                    <button class="btn btn-orange" id="play-btn" onclick="togglePlay()">▶ ПРЕДПРОСМОТР</button>
+                    <button class="btn" onclick="location.reload()">🔄 СБРОСИТЬ ВСЁ</button>
+                </div>
+            </div>
             <div id="main-nav">
-                <button class="btn" id="rec-btn" onclick="toggleRec()">⏺ ЗАПИСЬ</button>
-                <button class="btn btn-orange" onclick="saveData()">💾 СОХРАНИТЬ</button>
+                <button class="btn btn-orange" onclick="addKeyframe()" id="add-btn">➕ ДОБАВИТЬ КАДР</button>
+                <button class="btn" style="background:#27ae60" onclick="saveData()">💾 СОХРАНИТЬ</button>
             </div>
         </div>
     </div>
@@ -70,36 +60,19 @@
     const ctx = canvas.getContext('2d');
     
     let tool = 'move';
-    let players = [
-        { id: 1, x: 0.5, y: 0.8, label: '1' }, { id: 2, x: 0.3, y: 0.7, label: '2' },
-        { id: 3, x: 0.7, y: 0.7, label: '3' }, { id: 4, x: 0.2, y: 0.4, label: '4' },
-        { id: 5, x: 0.8, y: 0.4, label: '5' }
-    ];
-    let ballParentId = 1;
-    let screens = [];
-    let history = []; // Для кнопки "Назад"
-    
-    let recordedFrames = [];
-    let isRec = false; let isPlay = false; let currentIdx = 0; let selected = null;
+    let currentState = {
+        players: [
+            { id: 1, x: 0.5, y: 0.8, label: '1' }, { id: 2, x: 0.3, y: 0.7, label: '2' },
+            { id: 3, x: 0.7, y: 0.7, label: '3' }, { id: 4, x: 0.2, y: 0.4, label: '4' },
+            { id: 5, x: 0.8, y: 0.4, label: '5' }
+        ],
+        ballParentId: 1,
+        screens: []
+    };
 
-    function saveHistory() {
-        history.push({
-            players: JSON.parse(JSON.stringify(players)),
-            screens: JSON.parse(JSON.stringify(screens)),
-            ball: ballParentId
-        });
-        if (history.length > 20) history.shift();
-    }
-
-    function undo() {
-        if (history.length === 0) return;
-        const last = history.pop();
-        players = last.players;
-        screens = last.screens;
-        ballParentId = last.ball;
-        render(players, screens, ballParentId);
-        tg.HapticFeedback.notificationOccurred('warning');
-    }
+    let keyframes = []; // Массив состояний
+    let isPlay = false;
+    let selected = null;
 
     function setTool(t) {
         tool = t;
@@ -107,20 +80,19 @@
         document.getElementById('t-' + t).classList.add('active');
     }
 
-    function render(pos, currentScreens, currentBallParent) {
+    function draw(state) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // 1. Заслоны
-        currentScreens.forEach(s => {
-            const sx = s.x * canvas.width; const sy = s.y * canvas.height;
+        // Заслоны
+        state.screens.forEach(s => {
             ctx.beginPath();
+            const sx = s.x * canvas.width; const sy = s.y * canvas.height;
             ctx.moveTo(sx, sy - 20); ctx.lineTo(sx, sy + 20);
-            ctx.strokeStyle = (selected === s) ? "#ff6b00" : "#000"; 
-            ctx.lineWidth = 6; ctx.stroke();
+            ctx.strokeStyle = "#000"; ctx.lineWidth = 6; ctx.stroke();
         });
 
-        // 2. Игроки
-        pos.forEach(p => {
+        // Игроки
+        state.players.forEach(p => {
             const px = p.x * canvas.width; const py = p.y * canvas.height;
             ctx.beginPath(); ctx.arc(px, py, 22, 0, Math.PI*2);
             ctx.fillStyle = "#bdc3c7"; ctx.fill();
@@ -128,7 +100,7 @@
             ctx.fillStyle = "#000"; ctx.font = "bold 18px Arial"; ctx.textAlign = "center";
             ctx.fillText(p.label, px, py + 7);
 
-            if (p.id === currentBallParent) {
+            if (p.id === state.ballParentId) {
                 ctx.beginPath(); ctx.arc(px + 18, py - 18, 9, 0, Math.PI*2);
                 ctx.fillStyle = "#e67e22"; ctx.fill();
                 ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.stroke();
@@ -136,103 +108,109 @@
         });
     }
 
-    function getTouch(e) {
-        const r = canvas.getBoundingClientRect();
-        const t = e.touches ? e.touches[0] : e;
-        return { x: (t.clientX - r.left) / canvas.width, y: (t.clientY - r.top) / canvas.height };
+    function addKeyframe() {
+        keyframes.push(JSON.parse(JSON.stringify(currentState)));
+        document.getElementById('frame-count').innerText = "Кадров: " + keyframes.length;
+        document.getElementById('player-controls').style.display = keyframes.length > 1 ? "flex" : "none";
+        if(keyframes.length > 1) document.getElementById('timeline').max = keyframes.length - 1;
+        tg.HapticFeedback.notificationOccurred('success');
     }
 
+    function undo() {
+        if (keyframes.length > 0) {
+            keyframes.pop();
+            document.getElementById('frame-count').innerText = "Кадров: " + keyframes.length;
+            tg.HapticFeedback.impactOccurred('light');
+        }
+    }
+
+    // Линейная интерполяция для плавной анимации
+    function lerp(start, end, t) { return start + (end - start) * t; }
+
+    function getInterpolatedState(t) {
+        if (keyframes.length === 0) return currentState;
+        if (t >= keyframes.length - 1) return keyframes[keyframes.length - 1];
+
+        const idx = Math.floor(t);
+        const subT = t - idx;
+        const s1 = keyframes[idx];
+        const s2 = keyframes[idx + 1];
+
+        return {
+            players: s1.players.map((p, i) => ({
+                ...p,
+                x: lerp(p.x, s2.players[i].x, subT),
+                y: lerp(p.y, s2.players[i].y, subT)
+            })),
+            ballParentId: subT < 0.5 ? s1.ballParentId : s2.ballParentId,
+            screens: s1.screens // Заслоны пока статичны для простоты
+        };
+    }
+
+    function togglePlay() {
+        if (keyframes.length < 2) return;
+        isPlay = !isPlay;
+        if (isPlay) {
+            let start = parseFloat(document.getElementById('timeline').value);
+            const anim = setInterval(() => {
+                if (!isPlay || start >= keyframes.length - 1) {
+                    clearInterval(anim);
+                    isPlay = false;
+                    return;
+                }
+                start += 0.02;
+                seek(start);
+                document.getElementById('timeline').value = start;
+            }, 20);
+        }
+    }
+
+    function seek(t) {
+        const state = getInterpolatedState(parseFloat(t));
+        draw(state);
+    }
+
+    // Тач-события
     canvas.addEventListener('touchstart', (e) => {
         if (isPlay) return;
-        const p = getTouch(e);
-        saveHistory(); // Сохраняем перед изменением
+        const r = canvas.getBoundingClientRect();
+        const t = e.touches[0];
+        const p = { x: (t.clientX - r.left) / canvas.width, y: (t.clientY - r.top) / canvas.height };
 
         if (tool === 'ball') {
-            const hitPlayer = players.find(pl => Math.hypot(pl.x - p.x, pl.y - p.y) < 0.1);
-            if (hitPlayer) {
-                ballParentId = hitPlayer.id;
-                tg.HapticFeedback.notificationOccurred('success');
-            }
+            const hit = currentState.players.find(pl => Math.hypot(pl.x - p.x, pl.y - p.y) < 0.1);
+            if (hit) { currentState.ballParentId = hit.id; tg.HapticFeedback.impactOccurred('medium'); }
         } else if (tool === 'screen') {
-            // Поиск существующего заслона
-            const hitScreen = screens.find(s => Math.hypot(s.x - p.x, s.y - p.y) < 0.08);
-            if (hitScreen) {
-                selected = hitScreen;
-            } else {
-                // Новый заслон
-                const newSc = { x: p.x, y: p.y };
-                screens.push(newSc);
-                selected = newSc;
-            }
+            const hit = currentState.screens.find(s => Math.hypot(s.x - p.x, s.y - p.y) < 0.08);
+            if (hit) selected = hit;
+            else { selected = {x: p.x, y: p.y}; currentState.screens.push(selected); }
+            tg.HapticFeedback.impactOccurred('medium');
         } else {
-            selected = players.find(pl => Math.hypot(pl.x - p.x, pl.y - p.y) < 0.1);
+            selected = currentState.players.find(pl => Math.hypot(pl.x - p.x, pl.y - p.y) < 0.1);
+            if (selected) tg.HapticFeedback.impactOccurred('medium');
         }
-        
-        if (selected) tg.HapticFeedback.impactOccurred('medium');
-        render(players, screens, ballParentId);
+        draw(currentState);
         e.preventDefault();
     }, {passive: false});
 
     canvas.addEventListener('touchmove', (e) => {
         if (!selected || isPlay) return;
-        const p = getTouch(e);
-        selected.x = p.x; selected.y = p.y;
-        render(players, screens, ballParentId);
-        e.preventDefault();
-    }, {passive: false});
-
-    canvas.addEventListener('touchend', (e) => {
-        if (selected && tool === 'screen') {
-            // Оставляем выделенным, пока не нажмут на пустое место (реализуется через клик без захвата)
-        }
-        selected = null;
+        const r = canvas.getBoundingClientRect();
+        const t = e.touches[0];
+        selected.x = (t.clientX - r.left) / canvas.width;
+        selected.y = (t.clientY - r.top) / canvas.height;
+        draw(currentState);
     });
 
-    function toggleRec() {
-        isRec = !isRec;
-        const btn = document.getElementById('rec-btn');
-        btn.innerText = isRec ? "⏹ СТОП" : "⏺ ЗАПИСЬ";
-        if (!isRec) {
-            document.getElementById('player-controls').style.display = "flex";
-            document.getElementById('timeline').max = recordedFrames.length - 1;
-            document.getElementById('total').innerText = (recordedFrames.length * 0.04).toFixed(1) + "s";
-        } else { recordedFrames = []; }
-    }
-
-    setInterval(() => { 
-        if(isRec) recordedFrames.push({ 
-            pos: players.map(p => ({...p})), 
-            sc: screens.map(s => ({...s})),
-            ball: ballParentId 
-        }); 
-    }, 40);
-
-    function togglePlay() {
-        isPlay = !isPlay;
-        if (isPlay) playAnim();
-    }
-
-    function playAnim() {
-        if (currentIdx >= recordedFrames.length) currentIdx = 0;
-        const interval = setInterval(() => {
-            if (currentIdx < recordedFrames.length && isPlay) {
-                const f = recordedFrames[currentIdx];
-                render(f.pos, f.sc, f.ball);
-                document.getElementById('timeline').value = currentIdx;
-                currentIdx++;
-            } else { clearInterval(interval); isPlay = false; }
-        }, 40);
-    }
-
-    function seek(v) { 
-        currentIdx = parseInt(v); 
-        const f = recordedFrames[currentIdx];
-        render(f.pos, f.sc, f.ball); 
-    }
+    canvas.addEventListener('touchend', () => { selected = null; });
 
     function saveData() {
-        if (recordedFrames.length === 0) return tg.showAlert("Запишите движение!");
-        tg.sendData(JSON.stringify({ frames: recordedFrames }));
+        if (keyframes.length < 2) {
+            // Если кадров нет, сохраняем хотя бы текущее положение как один кадр
+            keyframes.push(JSON.parse(JSON.stringify(currentState)));
+            keyframes.push(JSON.parse(JSON.stringify(currentState)));
+        }
+        tg.sendData(JSON.stringify({ frames: keyframes, isKeyframed: true }));
         tg.close();
     }
 
@@ -241,11 +219,11 @@
         const hash = window.location.hash;
         if (hash.includes('data=')) {
             const d = JSON.parse(decodeURIComponent(hash.split('data=')[1]));
-            recordedFrames = d.frames;
+            keyframes = d.frames;
             document.getElementById('player-controls').style.display = "flex";
-            document.getElementById('rec-btn').style.display = "none";
-            render(recordedFrames[0].pos, recordedFrames[0].sc, recordedFrames[0].ball);
-        } else { render(players, screens, ballParentId); }
+            document.getElementById('timeline').max = keyframes.length - 1;
+            seek(0);
+        } else { draw(currentState); }
     };
 </script>
 </body>
