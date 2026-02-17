@@ -22,8 +22,7 @@
         .btn-orange { background: #ff6b00; color: black; }
     </style>
 </head>
-<body>
-    <div id="app">
+<body onclick="initHaptic()"> <div id="app">
         <div id="toolbar">
             <button class="tool-btn active" id="t-move" onclick="setTool('move')">🏃 ИГРОКИ</button>
             <button class="tool-btn" id="t-ball" onclick="setTool('ball')">🏀 МЯЧ</button>
@@ -52,28 +51,34 @@
 
 <script>
     const tg = window.Telegram.WebApp;
-    tg.expand(); // Расширяем на весь экран сразу
-
     const canvas = document.getElementById('court');
     const ctx = canvas.getContext('2d');
     
-    // Продвинутая функция вибрации
-    function triggerHaptic(style = 'medium') {
-        if (!tg.HapticFeedback) return;
-        
-        switch(style) {
-            case 'light': tg.HapticFeedback.impactOccurred('light'); break;
-            case 'medium': tg.HapticFeedback.impactOccurred('medium'); break;
-            case 'heavy': tg.HapticFeedback.impactOccurred('heavy'); break;
-            case 'success': tg.HapticFeedback.notificationOccurred('success'); break;
-            case 'warning': tg.HapticFeedback.notificationOccurred('warning'); break;
+    let hapticInited = false;
+
+    // Активация Haptic при первом клике (нужно для Android/Pixel)
+    function initHaptic() {
+        if (!hapticInited) {
+            if (navigator.vibrate) navigator.vibrate(10);
+            hapticInited = true;
         }
-        
-        // Дублируем стандартным API для Android
-        if (navigator.vibrate) {
-            if (style === 'medium') navigator.vibrate(40);
-            if (style === 'success') navigator.vibrate([30, 50, 30]);
-        }
+    }
+
+    function vibrate(style = 'medium') {
+        try {
+            // Telegram Метод
+            if (tg.HapticFeedback) {
+                if (style === 'medium') tg.HapticFeedback.impactOccurred('medium');
+                else if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
+                else tg.HapticFeedback.impactOccurred('light');
+            }
+            // Системный метод Android (Pixel любит это)
+            if (navigator.vibrate) {
+                if (style === 'medium') navigator.vibrate(45);
+                else if (style === 'success') navigator.vibrate([35, 50, 35]);
+                else navigator.vibrate(20);
+            }
+        } catch (e) { console.error(e); }
     }
 
     let tool = 'move';
@@ -96,14 +101,14 @@
 
     function undo() {
         if (history.length === 0) return;
-        triggerHaptic('light');
+        vibrate('light');
         const last = JSON.parse(history.pop());
         players = last.players; screens = last.screens; ballId = last.ballId;
         render(players, screens, ballId);
     }
 
     function setTool(t) {
-        triggerHaptic('light');
+        vibrate('light');
         tool = t;
         document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
         document.getElementById('t-' + t).classList.add('active');
@@ -145,23 +150,23 @@
                 const hit = players.find(pl => Math.hypot(pl.x - p.x, pl.y - p.y) < 0.1);
                 if (hit) { 
                     ballId = hit.id; 
-                    triggerHaptic('success');
+                    vibrate('success');
                 }
             } else if (tool === 'screen') {
                 const hit = screens.find(s => Math.hypot(s.x - p.x, s.y - p.y) < 0.08);
                 if (hit) {
                     activeTouches[touch.identifier] = { target: hit };
-                    triggerHaptic('medium');
+                    vibrate('medium');
                 } else { 
                     let n = {x: p.x, y: p.y}; screens.push(n); 
                     activeTouches[touch.identifier] = { target: n };
-                    triggerHaptic('medium');
+                    vibrate('medium');
                 }
             } else {
                 const hit = players.find(pl => Math.hypot(pl.x - p.x, pl.y - p.y) < 0.1);
                 if (hit) {
                     activeTouches[touch.identifier] = { target: hit };
-                    triggerHaptic('medium');
+                    vibrate('medium'); // Прямой вызов при попадании пальца
                 }
             }
         }
@@ -190,7 +195,7 @@
     });
 
     function toggleRec() {
-        triggerHaptic('medium');
+        vibrate('medium');
         isRec = !isRec;
         const btn = document.getElementById('rec-btn');
         btn.innerText = isRec ? "⏹ СТОП" : "⏺ ЗАПИСЬ";
@@ -206,7 +211,7 @@
     }, 40);
 
     function togglePlay() {
-        triggerHaptic('light');
+        vibrate('light');
         isPlay = !isPlay;
         if (isPlay) {
             const anim = setInterval(() => {
@@ -223,7 +228,7 @@
     function seek(v) { currentIdx = parseInt(v); if(recordedFrames[currentIdx]) { const f = recordedFrames[currentIdx]; render(f.pos, f.scs, f.bId); } }
 
     function saveData() {
-        triggerHaptic('success');
+        vibrate('success');
         if (recordedFrames.length === 0) return tg.showAlert("Запишите движение!");
         tg.sendData(JSON.stringify({ frames: recordedFrames }));
         tg.close();
