@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Legion Tactical Player</title>
+    <title>Legion Tactical Pro</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { margin: 0; background: #000; font-family: sans-serif; overflow: hidden; touch-action: none; color: white; }
+        body { margin: 0; background: #000; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; overflow: hidden; touch-action: none; color: white; }
         #app { display: flex; flex-direction: column; height: 100vh; }
         
         /* Поле */
@@ -14,172 +14,241 @@
             flex-grow: 1; position: relative;
             background-image: url('basketbolnaya-ploshchadka.jpg');
             background-size: contain; background-repeat: no-repeat; background-position: center;
+            background-color: #002d20;
         }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; }
 
         /* Панель управления плеером */
         #player-controls { 
-            background: #222; padding: 10px; display: flex; flex-direction: column; gap: 10px;
-            border-top: 1px solid #444;
+            background: #1a1a1a; padding: 15px; display: flex; flex-direction: column; gap: 12px;
+            border-top: 1px solid #333; display: none; /* Скрыт по умолчанию, виден в режиме просмотра */
         }
         .row { display: flex; justify-content: space-around; align-items: center; }
         
-        input[type=range] { flex-grow: 1; margin: 0 15px; }
+        input[type=range] { flex-grow: 1; margin: 0 15px; accent-color: #ff6b00; }
         
-        .btn { padding: 8px 15px; border-radius: 5px; border: none; background: #444; color: white; font-weight: bold; }
-        .btn.active { background: #ff6b00; }
-        .speed-btn { width: 40px; font-size: 12px; }
+        .btn { padding: 10px 18px; border-radius: 8px; border: none; background: #333; color: white; font-weight: bold; cursor: pointer; }
+        .btn:active { transform: scale(0.95); }
+        .btn-orange { background: #ff6b00; }
+        .speed-btn { width: 45px; font-size: 11px; border: 1px solid #444; }
+        .speed-btn.active { background: #ff6b00; border-color: #fff; }
 
-        #main-nav { height: 60px; background: #111; display: flex; justify-content: space-around; align-items: center; }
-        .save-btn { background: #2ecc71; padding: 10px 30px; }
+        #main-nav { 
+            height: 75px; background: #111; display: flex; justify-content: space-around; 
+            align-items: center; padding-bottom: env(safe-area-inset-bottom);
+        }
+        .status-tag { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 5px 10px; border-radius: 5px; font-size: 12px; z-index: 10; }
     </style>
 </head>
 <body>
     <div id="app">
+        <div class="status-tag" id="mode-status">Режим: Редактор</div>
         <div id="court-wrapper"><canvas id="court"></canvas></div>
         
         <div id="player-controls">
             <div class="row">
-                <span id="current-time">00:00</span>
-                <input type="range" id="timeline" min="0" value="0" step="1">
-                <span id="total-time">00:00</span>
+                <span id="current-time" style="font-family: monospace;">0.0s</span>
+                <input type="range" id="timeline" min="0" value="0" step="1" oninput="manualSeek(this.value)">
+                <span id="total-time" style="font-family: monospace;">0.0s</span>
             </div>
             <div class="row">
-                <button class="btn" onclick="togglePlay()" id="play-btn">▶ PLAY</button>
-                <button class="btn speed-btn" onclick="setSpeed(0.5)">0.5x</button>
-                <button class="btn speed-btn active" id="sp1" onclick="setSpeed(1)">1x</button>
-                <button class="btn speed-btn" onclick="setSpeed(2)">2x</button>
-                <button class="btn" onclick="resetPositions()">⏪ СБРОС</button>
+                <button class="btn btn-orange" onclick="togglePlay()" id="play-btn">▶ PLAY</button>
+                <button class="btn speed-btn" id="s05" onclick="setSpeed(0.5)">0.5x</button>
+                <button class="btn speed-btn active" id="s1" onclick="setSpeed(1)">1x</button>
+                <button class="btn speed-btn" id="s2" onclick="setSpeed(2)">2x</button>
+                <button class="btn" onclick="resetPlayback()">⏪ СБРОС</button>
             </div>
         </div>
 
         <div id="main-nav">
-            <button class="btn" onclick="startRecording()" id="rec-btn">⏺ ЗАПИСЬ</button>
-            <button class="btn save-btn" onclick="saveScheme()">СОХРАНИТЬ</button>
+            <button class="btn" id="rec-btn" onclick="toggleRecording()" style="background: #444;">⏺ ЗАПИСЬ</button>
+            <button class="btn btn-orange" onclick="saveToBot()">💾 СОХРАНИТЬ</button>
         </div>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
+        tg.expand();
+
         const canvas = document.getElementById('court');
         const ctx = canvas.getContext('2d');
-        
+        const modeStatus = document.getElementById('mode-status');
+        const playerControls = document.getElementById('player-controls');
+
         let players = [
-            { id: 1, x: 0.5, y: 0.8, label: '1' },
-            { id: 2, x: 0.3, y: 0.7, label: '2' },
-            { id: 3, x: 0.7, y: 0.7, label: '3' },
-            { id: 4, x: 0.2, y: 0.4, label: '4' },
-            { id: 5, x: 0.8, y: 0.4, label: '5' }
+            { id: 1, x: 0.5, y: 0.85, label: '1' },
+            { id: 2, x: 0.2, y: 0.75, label: '2' },
+            { id: 3, x: 0.8, y: 0.75, label: '3' },
+            { id: 4, x: 0.3, y: 0.55, label: '4' },
+            { id: 5, x: 0.7, y: 0.55, label: '5' }
         ];
 
-        let recordedFrames = []; // Массив состояний всех игроков
+        let recordedFrames = [];
         let isRecording = false;
         let isPlaying = false;
         let currentFrameIdx = 0;
         let playbackSpeed = 1;
         let playInterval;
 
-        // Рисование
+        // --- ИНИЦИАЛИЗАЦИЯ (ПРОВЕРКА АРХИВА) ---
+        window.onload = () => {
+            const hash = window.location.hash;
+            if (hash && hash.includes('data=')) {
+                try {
+                    const jsonStr = decodeURIComponent(hash.split('data=')[1]);
+                    const data = JSON.parse(jsonStr);
+                    if (data.frames) {
+                        recordedFrames = data.frames;
+                        modeStatus.innerText = "Режим: Просмотр (Архив)";
+                        playerControls.style.display = "flex";
+                        document.getElementById('rec-btn').style.display = "none";
+                        initTimeline();
+                        draw(recordedFrames[0]);
+                    }
+                } catch (e) {
+                    console.error("Ошибка загрузки данных:", e);
+                }
+            } else {
+                draw(players);
+            }
+        };
+
+        // --- РИСОВАНИЕ ---
         function draw(positions) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             positions.forEach(p => {
                 const px = p.x * canvas.width;
                 const py = p.y * canvas.height;
-                ctx.beginPath(); ctx.arc(px, py, 20, 0, Math.PI*2);
+                
+                // Игрок
+                ctx.beginPath(); ctx.arc(px, py, 22, 0, Math.PI*2);
                 ctx.fillStyle = "#ff6b00"; ctx.fill();
                 ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke();
-                ctx.fillStyle = "white"; ctx.font = "bold 16px Arial"; ctx.textAlign = "center";
-                ctx.fillText(p.label, px, py + 6);
+                
+                // Номер
+                ctx.fillStyle = "white"; ctx.font = "bold 18px Arial"; ctx.textAlign = "center";
+                ctx.fillText(p.label, px, py + 7);
             });
         }
 
-        // Запись
-        function startRecording() {
+        // --- ЛОГИКА ЗАПИСИ ---
+        function toggleRecording() {
             isRecording = !isRecording;
             const btn = document.getElementById('rec-btn');
             if (isRecording) {
                 recordedFrames = [];
                 btn.innerText = "⏹ СТОП";
                 btn.style.background = "#e74c3c";
+                playerControls.style.display = "none";
             } else {
                 btn.innerText = "⏺ ЗАПИСЬ";
                 btn.style.background = "#444";
-                initPlayer();
+                if (recordedFrames.length > 0) {
+                    playerControls.style.display = "flex";
+                    initTimeline();
+                }
             }
         }
 
-        // Логика записи (50 кадров в секунду для плавности)
         setInterval(() => {
             if (isRecording) {
                 recordedFrames.push(players.map(p => ({x: p.x, y: p.y, label: p.label})));
             }
-        }, 20);
+        }, 30); // ~33 кадра в секунду
 
-        // Плеер
-        function initPlayer() {
+        // --- ПЛЕЕР ---
+        function initTimeline() {
             const slider = document.getElementById('timeline');
             slider.max = recordedFrames.length - 1;
-            document.getElementById('total-time').innerText = (recordedFrames.length / 50).toFixed(1) + "s";
+            document.getElementById('total-time').innerText = (recordedFrames.length * 0.03).toFixed(1) + "s";
         }
 
         function togglePlay() {
+            if (recordedFrames.length === 0) return;
             isPlaying = !isPlaying;
-            const btn = document.getElementById('play-btn');
-            btn.innerText = isPlaying ? "⏸ PAUSE" : "▶ PLAY";
-            if (isPlaying) play(); else clearInterval(playInterval);
+            document.getElementById('play-btn').innerText = isPlaying ? "⏸ PAUSE" : "▶ PLAY";
+            if (isPlaying) startPlayback(); else clearInterval(playInterval);
         }
 
-        function play() {
+        function startPlayback() {
             clearInterval(playInterval);
             playInterval = setInterval(() => {
                 if (currentFrameIdx < recordedFrames.length) {
                     draw(recordedFrames[currentFrameIdx]);
-                    document.getElementById('timeline').value = currentFrameIdx;
-                    document.getElementById('current-time').innerText = (currentFrameIdx / 50).toFixed(1) + "s";
+                    updateUI();
                     currentFrameIdx++;
                 } else {
-                    togglePlay();
                     currentFrameIdx = 0;
+                    togglePlay();
                 }
-            }, 20 / playbackSpeed);
+            }, 30 / playbackSpeed);
+        }
+
+        function updateUI() {
+            document.getElementById('timeline').value = currentFrameIdx;
+            document.getElementById('current-time').innerText = (currentFrameIdx * 0.03).toFixed(1) + "s";
+        }
+
+        function manualSeek(val) {
+            currentFrameIdx = parseInt(val);
+            draw(recordedFrames[currentFrameIdx]);
+            updateUI();
         }
 
         function setSpeed(s) {
             playbackSpeed = s;
             document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
-            if (isPlaying) play(); 
+            document.getElementById('s' + s.toString().replace('.','')).classList.add('active');
+            if (isPlaying) startPlayback();
         }
 
-        // Drag & Drop
+        function resetPlayback() {
+            currentFrameIdx = 0;
+            draw(recordedFrames[0] || players);
+            updateUI();
+            if (isPlaying) togglePlay();
+        }
+
+        // --- ПЕРЕМЕЩЕНИЕ (Drag & Drop) ---
         let selected = null;
+        const getXY = e => {
+            const rect = canvas.getBoundingClientRect();
+            const t = e.touches ? e.touches[0] : e;
+            return { x: (t.clientX - rect.left) / canvas.width, y: (t.clientY - rect.top) / canvas.height };
+        };
+
         canvas.addEventListener('touchstart', e => {
             if (isPlaying) return;
-            const rect = canvas.getBoundingClientRect();
-            const x = (e.touches[0].clientX - rect.left) / canvas.width;
-            const y = (e.touches[0].clientY - rect.top) / canvas.height;
-            selected = players.find(p => Math.hypot(p.x - x, p.y - y) < 0.08);
+            const pos = getXY(e);
+            selected = players.find(p => Math.hypot(p.x - pos.x, p.y - pos.y) < 0.07);
+            if (selected) tg.HapticFeedback.impactOccurred('light');
         });
 
         canvas.addEventListener('touchmove', e => {
             if (selected && !isPlaying) {
-                const rect = canvas.getBoundingClientRect();
-                selected.x = (e.touches[0].clientX - rect.left) / canvas.width;
-                selected.y = (e.touches[0].clientY - rect.top) / canvas.height;
+                const pos = getXY(e);
+                selected.x = Math.max(0, Math.min(1, pos.x));
+                selected.y = Math.max(0, Math.min(1, pos.y));
                 draw(players);
             }
         });
 
-        function saveScheme() {
-            tg.sendData(JSON.stringify({
-                frames: recordedFrames,
-                duration: recordedFrames.length
-            }));
+        canvas.addEventListener('touchend', () => selected = null);
+
+        // --- ОТПРАВКА В БОТ ---
+        function saveToBot() {
+            if (recordedFrames.length === 0) {
+                tg.showAlert("Сначала запишите движение (нажмите ⏺ ЗАПИСЬ)");
+                return;
+            }
+            tg.sendData(JSON.stringify({ frames: recordedFrames }));
             tg.close();
         }
 
         window.addEventListener('resize', () => {
-            canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight;
-            draw(recordedFrames[currentFrameIdx] || players);
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            draw(isPlaying ? recordedFrames[currentFrameIdx] : players);
         });
         window.dispatchEvent(new Event('resize'));
     </script>
