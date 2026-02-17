@@ -5,22 +5,49 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { margin: 0; background: #1a3d2b; overflow: hidden; font-family: sans-serif; touch-action: none; }
-        #canvas-container { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; }
-        canvas { display: block; flex-grow: 1; }
-        #controls { height: 70px; background: #111; display: flex; align-items: center; justify-content: center; border-top: 1px solid #333; }
-        button { 
-            padding: 12px 25px; border-radius: 10px; border: none; 
-            background: #f39c12; color: white; font-weight: bold; font-size: 16px; 
-            box-shadow: 0 4px 0 #d35400; cursor: pointer;
+        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; touch-action: none; }
+        #canvas-container { 
+            position: relative; 
+            width: 100vw; 
+            height: 100vh; 
+            display: flex; 
+            flex-direction: column; 
         }
-        button:active { transform: translateY(2px); box-shadow: 0 2px 0 #d35400; }
+        canvas { 
+            display: block; 
+            flex-grow: 1; 
+            /* Используем твой файл из репозитория */
+            background-image: url('basketbolnaya-ploshchadka.jpg'); 
+            background-size: 100% 100%; 
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+        #controls { 
+            height: 80px; 
+            background: #111; 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-around; 
+            border-top: 1px solid #333; 
+        }
+        button { 
+            padding: 12px 20px; border-radius: 8px; border: none; 
+            color: white; font-weight: bold; font-size: 14px; cursor: pointer;
+            text-transform: uppercase;
+        }
+        .btn-record { background: #e74c3c; box-shadow: 0 4px 0 #c0392b; }
+        .btn-record.active { background: #2ecc71; box-shadow: 0 4px 0 #27ae60; }
+        .btn-save { background: #f39c12; box-shadow: 0 4px 0 #d35400; }
+        button:active { transform: translateY(2px); box-shadow: none; }
     </style>
 </head>
 <body>
     <div id="canvas-container">
         <canvas id="court"></canvas>
-        <div id="controls"><button onclick="sendData()">💾 СОХРАНИТЬ ТАКТИКУ</button></div>
+        <div id="controls">
+            <button id="recBtn" class="btn-record" onclick="toggleRecord()">⏺ ЗАПИСЬ</button>
+            <button class="btn-save" onclick="sendData()">💾 СОХРАНИТЬ</button>
+        </div>
     </div>
 
     <script>
@@ -30,97 +57,97 @@
         const canvas = document.getElementById('court');
         const ctx = canvas.getContext('2d');
         
+        let isRecording = false;
+        let animationData = [];
+        
         let players = [
-            { id: 1, x: 0.5, y: 0.85, color: '#e74c3c', label: '1', pos: 'PG' },
-            { id: 2, x: 0.25, y: 0.7, color: '#e74c3c', label: '2', pos: 'SG' },
-            { id: 3, x: 0.75, y: 0.7, color: '#e74c3c', label: '3', pos: 'SF' },
-            { id: 4, x: 0.3, y: 0.45, color: '#e74c3c', label: '4', pos: 'PF' },
-            { id: 5, x: 0.7, y: 0.45, color: '#e74c3c', label: '5', pos: 'C' }
+            { id: 1, x: 0.5, y: 0.8, label: '1', pos: 'PG' },
+            { id: 2, x: 0.3, y: 0.6, label: '2', pos: 'SG' },
+            { id: 3, x: 0.7, y: 0.6, label: '3', pos: 'SF' },
+            { id: 4, x: 0.35, y: 0.4, label: '4', pos: 'PF' },
+            { id: 5, x: 0.65, y: 0.4, label: '5', pos: 'C' }
         ];
 
-        function drawCourt() {
-            const w = canvas.width;
-            const h = canvas.height;
-            ctx.strokeStyle = "rgba(255,255,255,0.8)";
-            ctx.lineWidth = 3;
-
-            // Аут
-            ctx.strokeRect(10, 10, w - 20, h - 20);
-            // Центральная линия
-            ctx.beginPath(); ctx.moveTo(10, h/2); ctx.lineTo(w-10, h/2); ctx.stroke();
-            // Центральный круг
-            ctx.beginPath(); ctx.arc(w/2, h/2, 50, 0, Math.PI*2); ctx.stroke();
-            // Трехсекундная зона (снизу)
-            ctx.strokeRect(w/2 - 60, h - 160, 120, 150);
-            // Линия штрафного (дуга)
-            ctx.beginPath(); ctx.arc(w/2, h - 160, 60, Math.PI, 0); ctx.stroke();
-            // Трехочковая линия (упрощенная дуга)
-            ctx.beginPath(); ctx.arc(w/2, h - 50, w/2 - 20, Math.PI, 0, true); ctx.stroke();
-            // Кольцо и щит
-            ctx.beginPath(); ctx.arc(w/2, h - 50, 10, 0, Math.PI*2); ctx.stroke();
-            ctx.fillRect(w/2 - 20, h - 35, 40, 3);
-        }
-
         function draw() {
-            ctx.fillStyle = "#1a3d2b";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            drawCourt();
-            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             players.forEach(p => {
                 const px = p.x * canvas.width;
                 const py = p.y * canvas.height;
-                ctx.beginPath(); ctx.arc(px, py, 20, 0, Math.PI*2);
-                ctx.fillStyle = p.color; ctx.fill();
-                ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
-                ctx.fillStyle = "white"; ctx.font = "bold 15px Arial"; ctx.textAlign = "center";
-                ctx.fillText(p.label, px, py + 5);
-                ctx.font = "10px Arial"; ctx.fillText(p.pos, px, py + 35);
+                
+                // Тень для объема
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = "rgba(0,0,0,0.6)";
+                
+                ctx.beginPath();
+                ctx.arc(px, py, 20, 0, Math.PI*2);
+                ctx.fillStyle = "#e74c3c";
+                ctx.fill();
+                
+                // Белая обводка
+                ctx.strokeStyle = "white";
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = "white";
+                ctx.font = "bold 16px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText(p.label, px, py + 6);
             });
         }
 
-        function resize() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight - 70;
-            draw();
+        function toggleRecord() {
+            isRecording = !isRecording;
+            const btn = document.getElementById('recBtn');
+            btn.innerText = isRecording ? "⏹ СТОП" : "⏺ ЗАПИСЬ";
+            btn.classList.toggle('active');
+            if (isRecording) animationData = [];
         }
+
+        function recordFrame() {
+            if (isRecording) {
+                animationData.push(players.map(p => ({ x: p.x.toFixed(3), y: p.y.toFixed(3) })));
+            }
+        }
+        setInterval(recordFrame, 100);
 
         let selectedPlayer = null;
         function getCoords(e) {
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            return { x: clientX, y: clientY };
+            const rect = canvas.getBoundingClientRect();
+            return { x: clientX - rect.left, y: clientY - rect.top };
         }
 
-        canvas.addEventListener('mousedown', e => {
+        const startHandler = e => {
             const c = getCoords(e);
             selectedPlayer = players.find(p => Math.hypot(p.x * canvas.width - c.x, p.y * canvas.height - c.y) < 30);
-        });
-        canvas.addEventListener('mousemove', e => {
+        };
+        const moveHandler = e => {
             if (selectedPlayer) {
                 const c = getCoords(e);
                 selectedPlayer.x = c.x / canvas.width;
                 selectedPlayer.y = c.y / canvas.height;
                 draw();
             }
-        });
+        };
+
+        canvas.addEventListener('mousedown', startHandler);
+        canvas.addEventListener('mousemove', moveHandler);
         window.addEventListener('mouseup', () => selectedPlayer = null);
-        canvas.addEventListener('touchstart', e => {
-            const c = getCoords(e);
-            selectedPlayer = players.find(p => Math.hypot(p.x * canvas.width - c.x, p.y * canvas.height - c.y) < 30);
-        });
-        canvas.addEventListener('touchmove', e => {
-            if (selectedPlayer) {
-                const c = getCoords(e);
-                selectedPlayer.x = c.x / canvas.width;
-                selectedPlayer.y = c.y / canvas.height;
-                draw();
-            }
-        });
+        canvas.addEventListener('touchstart', startHandler);
+        canvas.addEventListener('touchmove', moveHandler);
         window.addEventListener('touchend', () => selectedPlayer = null);
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight - 80;
+            draw();
+        }
         window.addEventListener('resize', resize);
         
         function sendData() {
-            tg.sendData(JSON.stringify(players));
+            tg.sendData(JSON.stringify({ animation: animationData, final: players }));
             tg.close();
         }
         resize();
