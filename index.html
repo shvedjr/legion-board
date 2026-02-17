@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Legion Pro Board</title>
+    <title>Legion Tactical Player</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { margin: 0; background: #000; font-family: sans-serif; overflow: hidden; touch-action: none; }
-        #canvas-container { display: flex; flex-direction: column; height: 100vh; }
+        body { margin: 0; background: #000; font-family: sans-serif; overflow: hidden; touch-action: none; color: white; }
+        #app { display: flex; flex-direction: column; height: 100vh; }
         
-        /* Площадка */
+        /* Поле */
         #court-wrapper { 
             flex-grow: 1; position: relative;
             background-image: url('basketbolnaya-ploshchadka.jpg');
@@ -17,35 +17,45 @@
         }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
 
-        /* Панель инструментов */
-        #toolbar { 
-            background: #222; display: flex; justify-content: space-around; padding: 10px;
-            border-bottom: 1px solid #444;
+        /* Панель управления плеером */
+        #player-controls { 
+            background: #222; padding: 10px; display: flex; flex-direction: column; gap: 10px;
+            border-top: 1px solid #444;
         }
-        .tool { 
-            width: 45px; height: 45px; border-radius: 5px; border: 2px solid #555;
-            background: #333; color: white; display: flex; align-items: center; justify-content: center; font-size: 20px;
-        }
-        .tool.active { border-color: #ff6b00; background: #444; }
+        .row { display: flex; justify-content: space-around; align-items: center; }
+        
+        input[type=range] { flex-grow: 1; margin: 0 15px; }
+        
+        .btn { padding: 8px 15px; border-radius: 5px; border: none; background: #444; color: white; font-weight: bold; }
+        .btn.active { background: #ff6b00; }
+        .speed-btn { width: 40px; font-size: 12px; }
 
-        #controls { 
-            height: 70px; background: #1a1a1a; display: flex; 
-            align-items: center; justify-content: space-around; padding-bottom: env(safe-area-inset-bottom);
-        }
-        .btn { padding: 10px 20px; border-radius: 8px; border: none; color: white; font-weight: bold; }
-        .btn-save { background: #3498db; }
-        .btn-clear { background: #555; }
+        #main-nav { height: 60px; background: #111; display: flex; justify-content: space-around; align-items: center; }
+        .save-btn { background: #2ecc71; padding: 10px 30px; }
     </style>
 </head>
 <body>
-    <div id="canvas-container">
-        <div id="toolbar">
-            <div class="tool active" onclick="setTool('move')" id="tool-move">🖐️</div>
-            <div class="tool" onclick="setTool('pass')" id="tool-pass">--🏀</div> <div class="tool" onclick="setTool('run')" id="tool-run">➡️</div> <div class="tool" onclick="setTool('screen')" id="tool-screen">┳</div> </div>
+    <div id="app">
         <div id="court-wrapper"><canvas id="court"></canvas></div>
-        <div id="controls">
-            <button class="btn btn-clear" onclick="clearBoard()">ОЧИСТИТЬ</button>
-            <button class="btn btn-save" onclick="sendData()">СОХРАНИТЬ СХЕМУ</button>
+        
+        <div id="player-controls">
+            <div class="row">
+                <span id="current-time">00:00</span>
+                <input type="range" id="timeline" min="0" value="0" step="1">
+                <span id="total-time">00:00</span>
+            </div>
+            <div class="row">
+                <button class="btn" onclick="togglePlay()" id="play-btn">▶ PLAY</button>
+                <button class="btn speed-btn" onclick="setSpeed(0.5)">0.5x</button>
+                <button class="btn speed-btn active" id="sp1" onclick="setSpeed(1)">1x</button>
+                <button class="btn speed-btn" onclick="setSpeed(2)">2x</button>
+                <button class="btn" onclick="resetPositions()">⏪ СБРОС</button>
+            </div>
+        </div>
+
+        <div id="main-nav">
+            <button class="btn" onclick="startRecording()" id="rec-btn">⏺ ЗАПИСЬ</button>
+            <button class="btn save-btn" onclick="saveScheme()">СОХРАНИТЬ</button>
         </div>
     </div>
 
@@ -53,126 +63,123 @@
         const tg = window.Telegram.WebApp;
         const canvas = document.getElementById('court');
         const ctx = canvas.getContext('2d');
-        let tool = 'move';
-        let drawings = []; // Здесь храним все стрелки и заслоны
+        
         let players = [
-            { id: 1, x: 0.5, y: 0.8, label: '1', ball: true },
+            { id: 1, x: 0.5, y: 0.8, label: '1' },
             { id: 2, x: 0.3, y: 0.7, label: '2' },
             { id: 3, x: 0.7, y: 0.7, label: '3' },
             { id: 4, x: 0.2, y: 0.4, label: '4' },
             { id: 5, x: 0.8, y: 0.4, label: '5' }
         ];
 
-        function setTool(t) {
-            tool = t;
-            document.querySelectorAll('.tool').forEach(el => el.classList.remove('active'));
-            document.getElementById('tool-' + t).classList.add('active');
-        }
+        let recordedFrames = []; // Массив состояний всех игроков
+        let isRecording = false;
+        let isPlaying = false;
+        let currentFrameIdx = 0;
+        let playbackSpeed = 1;
+        let playInterval;
 
-        function drawArrow(start, end, type) {
-            ctx.beginPath();
-            ctx.moveTo(start.x * canvas.width, start.y * canvas.height);
-            ctx.lineTo(end.x * canvas.width, end.y * canvas.height);
-            
-            if (type === 'pass') ctx.setLineDash([10, 10]); // Пунктир для паса
-            else ctx.setLineDash([]);
-            
-            ctx.strokeStyle = type === 'screen' ? '#f1c40f' : 'white';
-            ctx.lineWidth = 4;
-            ctx.stroke();
-
-            // Рисуем наконечник или планку заслона
-            const angle = Math.atan2((end.y - start.y) * canvas.height, (end.x - start.x) * canvas.width);
-            ctx.setLineDash([]);
-            if (type === 'screen') {
-                // Планка заслона (Т-образная)
-                ctx.save();
-                ctx.translate(end.x * canvas.width, end.y * canvas.height);
-                ctx.rotate(angle);
-                ctx.moveTo(0, -15); ctx.lineTo(0, 15); ctx.stroke();
-                ctx.restore();
-            } else {
-                // Стрелка
-                ctx.save();
-                ctx.translate(end.x * canvas.width, end.y * canvas.height);
-                ctx.rotate(angle);
-                ctx.moveTo(0, 0); ctx.lineTo(-15, -10); ctx.moveTo(0, 0); ctx.lineTo(-15, 10);
-                ctx.stroke();
-                ctx.restore();
-            }
-        }
-
-        function draw() {
+        // Рисование
+        function draw(positions) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // 1. Рисуем все стрелки
-            drawings.forEach(d => drawArrow(d.start, d.end, d.type));
-
-            // 2. Рисуем игроков
-            players.forEach(p => {
-                const px = p.x * canvas.width; const py = p.y * canvas.height;
+            positions.forEach(p => {
+                const px = p.x * canvas.width;
+                const py = p.y * canvas.height;
                 ctx.beginPath(); ctx.arc(px, py, 20, 0, Math.PI*2);
                 ctx.fillStyle = "#ff6b00"; ctx.fill();
                 ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke();
                 ctx.fillStyle = "white"; ctx.font = "bold 16px Arial"; ctx.textAlign = "center";
                 ctx.fillText(p.label, px, py + 6);
-                if (p.ball) { // Мяч у игрока
-                    ctx.beginPath(); ctx.arc(px + 15, py - 15, 8, 0, Math.PI*2);
-                    ctx.fillStyle = "#f39c12"; ctx.fill(); ctx.stroke();
-                }
             });
         }
 
-        let isDrawing = false;
-        let startPoint = null;
-        let selectedPlayer = null;
+        // Запись
+        function startRecording() {
+            isRecording = !isRecording;
+            const btn = document.getElementById('rec-btn');
+            if (isRecording) {
+                recordedFrames = [];
+                btn.innerText = "⏹ СТОП";
+                btn.style.background = "#e74c3c";
+            } else {
+                btn.innerText = "⏺ ЗАПИСЬ";
+                btn.style.background = "#444";
+                initPlayer();
+            }
+        }
 
+        // Логика записи (50 кадров в секунду для плавности)
+        setInterval(() => {
+            if (isRecording) {
+                recordedFrames.push(players.map(p => ({x: p.x, y: p.y, label: p.label})));
+            }
+        }, 20);
+
+        // Плеер
+        function initPlayer() {
+            const slider = document.getElementById('timeline');
+            slider.max = recordedFrames.length - 1;
+            document.getElementById('total-time').innerText = (recordedFrames.length / 50).toFixed(1) + "s";
+        }
+
+        function togglePlay() {
+            isPlaying = !isPlaying;
+            const btn = document.getElementById('play-btn');
+            btn.innerText = isPlaying ? "⏸ PAUSE" : "▶ PLAY";
+            if (isPlaying) play(); else clearInterval(playInterval);
+        }
+
+        function play() {
+            clearInterval(playInterval);
+            playInterval = setInterval(() => {
+                if (currentFrameIdx < recordedFrames.length) {
+                    draw(recordedFrames[currentFrameIdx]);
+                    document.getElementById('timeline').value = currentFrameIdx;
+                    document.getElementById('current-time').innerText = (currentFrameIdx / 50).toFixed(1) + "s";
+                    currentFrameIdx++;
+                } else {
+                    togglePlay();
+                    currentFrameIdx = 0;
+                }
+            }, 20 / playbackSpeed);
+        }
+
+        function setSpeed(s) {
+            playbackSpeed = s;
+            document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+            if (isPlaying) play(); 
+        }
+
+        // Drag & Drop
+        let selected = null;
         canvas.addEventListener('touchstart', e => {
+            if (isPlaying) return;
             const rect = canvas.getBoundingClientRect();
-            const touch = e.touches[0];
-            const x = (touch.clientX - rect.left) / canvas.width;
-            const y = (touch.clientY - rect.top) / canvas.height;
-            
-            startPoint = {x, y};
-            selectedPlayer = players.find(p => Math.hypot(p.x - x, p.y - y) < 0.08);
-
-            if (tool !== 'move') isDrawing = true;
+            const x = (e.touches[0].clientX - rect.left) / canvas.width;
+            const y = (e.touches[0].clientY - rect.top) / canvas.height;
+            selected = players.find(p => Math.hypot(p.x - x, p.y - y) < 0.08);
         });
 
         canvas.addEventListener('touchmove', e => {
-            const rect = canvas.getBoundingClientRect();
-            const touch = e.touches[0];
-            const x = (touch.clientX - rect.left) / canvas.width;
-            const y = (touch.clientY - rect.top) / canvas.height;
-
-            if (tool === 'move' && selectedPlayer) {
-                selectedPlayer.x = x; selectedPlayer.y = y;
-            }
-            draw();
-            if (isDrawing) drawArrow(startPoint, {x, y}, tool);
-        });
-
-        canvas.addEventListener('touchend', e => {
-            if (isDrawing) {
+            if (selected && !isPlaying) {
                 const rect = canvas.getBoundingClientRect();
-                const touch = e.changedTouches[0];
-                const x = (touch.clientX - rect.left) / canvas.width;
-                const y = (touch.clientY - rect.top) / canvas.height;
-                drawings.push({start: startPoint, end: {x, y}, type: tool});
+                selected.x = (e.touches[0].clientX - rect.left) / canvas.width;
+                selected.y = (e.touches[0].clientY - rect.top) / canvas.height;
+                draw(players);
             }
-            isDrawing = false; selectedPlayer = null;
-            draw();
         });
 
-        function clearBoard() { drawings = []; draw(); }
-
-        function sendData() {
-            tg.sendData(JSON.stringify({drawings, players}));
+        function saveScheme() {
+            tg.sendData(JSON.stringify({
+                frames: recordedFrames,
+                duration: recordedFrames.length
+            }));
             tg.close();
         }
 
         window.addEventListener('resize', () => {
-            canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; draw();
+            canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight;
+            draw(recordedFrames[currentFrameIdx] || players);
         });
         window.dispatchEvent(new Event('resize'));
     </script>
