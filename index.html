@@ -1,118 +1,215 @@
+<!DOCTYPE html>
+<html style="height: 100%;">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Legion Pro</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            background: #000; overflow: hidden; position: fixed;
+            font-family: sans-serif;
+        }
+        #app { 
+            display: flex; flex-direction: column; 
+            width: 100%; height: 100%; 
+        }
+        
+        #court-wrapper { 
+            position: relative; 
+            flex: 1; /* Занимает всё свободное место */
+            width: 100%;
+            background-image: url('basketbolnaya-ploshchadka.jpg');
+            background-size: contain; 
+            background-repeat: no-repeat; 
+            background-position: center;
+        }
+        
+        canvas { 
+            position: absolute; 
+            top: 0; left: 0; 
+            width: 100%; height: 100%; 
+            z-index: 99; /* Поверх всего */
+            touch-action: none;
+        }
+
+        #controls-area {
+            background: #111;
+            padding-bottom: env(safe-area-inset-bottom);
+            z-index: 100;
+        }
+
+        #player-controls { 
+            display: none; flex-direction: column; gap: 5px; padding: 10px;
+            border-top: 1px solid #333;
+        }
+        
+        .row { display: flex; justify-content: space-around; align-items: center; color: white; }
+        input[type=range] { flex: 1; margin: 0 10px; }
+        
+        #main-nav { 
+            height: 70px; display: flex; justify-content: space-around; align-items: center; 
+        }
+        
+        .btn { 
+            padding: 12px 20px; border-radius: 8px; border: none; 
+            background: #333; color: white; font-weight: bold; 
+        }
+        .btn-orange { background: #ff6b00; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div id="court-wrapper">
+            <canvas id="court"></canvas>
+        </div>
+        
+        <div id="controls-area">
+            <div id="player-controls">
+                <div class="row">
+                    <span id="curr">0.0s</span>
+                    <input type="range" id="timeline" value="0">
+                    <span id="total">0.0s</span>
+                </div>
+                <div class="row">
+                    <button class="btn btn-orange" id="play-btn">▶ ПУСК</button>
+                    <button class="btn" onclick="location.reload()">🔄 СБРОС</button>
+                </div>
+            </div>
+
+            <div id="main-nav">
+                <button class="btn" id="rec-btn">⏺ ЗАПИСЬ</button>
+                <button class="btn btn-orange" id="save-btn">💾 СОХРАНИТЬ</button>
+            </div>
+        </div>
+    </div>
+
 <script>
     const tg = window.Telegram.WebApp;
     tg.expand();
-    tg.ready();
 
     const canvas = document.getElementById('court');
     const ctx = canvas.getContext('2d');
     
     let players = [
-        { id: 1, x: 0.5, y: 0.85, label: '1' },
-        { id: 2, x: 0.2, y: 0.75, label: '2' },
-        { id: 3, x: 0.8, y: 0.75, label: '3' },
-        { id: 4, x: 0.3, y: 0.55, label: '4' },
-        { id: 5, x: 0.7, y: 0.55, label: '5' }
+        { id: 1, x: 0.5, y: 0.8, label: '1' },
+        { id: 2, x: 0.3, y: 0.7, label: '2' },
+        { id: 3, x: 0.7, y: 0.7, label: '3' },
+        { id: 4, x: 0.2, y: 0.4, label: '4' },
+        { id: 5, x: 0.8, y: 0.4, label: '5' }
     ];
 
     let recordedFrames = [];
     let isRecording = false;
     let isPlaying = false;
-    let currentFrameIdx = 0;
-    let selectedPlayer = null;
+    let currentIdx = 0;
+    let selected = null;
 
-    // ФУНКЦИЯ ОТРИСОВКИ
-    function render(positions) {
-        if (canvas.width === 0 || canvas.height === 0) return;
+    function render(pos) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        positions.forEach(p => {
+        pos.forEach(p => {
             const px = p.x * canvas.width;
             const py = p.y * canvas.height;
-            
             ctx.beginPath();
-            ctx.arc(px, py, 22, 0, Math.PI * 2);
-            ctx.fillStyle = "#ff6b00";
-            ctx.fill();
-            ctx.strokeStyle = "white";
-            ctx.lineWidth = 3;
-            ctx.stroke();
-            
-            ctx.fillStyle = "white";
-            ctx.font = "bold 18px Arial";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
+            ctx.arc(px, py, 20, 0, Math.PI*2);
+            ctx.fillStyle = "#ff6b00"; ctx.fill();
+            ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
+            ctx.fillStyle = "#fff"; ctx.font = "bold 16px Arial";
+            ctx.textAlign = "center"; ctx.textBaseline = "middle";
             ctx.fillText(p.label, px, py);
         });
     }
 
-    // ОПРЕДЕЛЕНИЕ КООРДИНАТ ДЛЯ ТЕЛЕФОНА
-    function getPos(e) {
-        const rect = canvas.getBoundingClientRect();
-        // Берем либо тач, либо мышь
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        return {
-            x: (clientX - rect.left) / canvas.width,
-            y: (clientY - rect.top) / canvas.height
-        };
+    function getTouch(e) {
+        const r = canvas.getBoundingClientRect();
+        const t = e.touches ? e.touches[0] : e;
+        return { x: (t.clientX - r.left) / canvas.width, y: (t.clientY - r.top) / canvas.height };
     }
 
-    // ОБРАБОТЧИКИ (МЫШЬ + ТАЧ)
-    const startAction = (e) => {
+    const start = (e) => {
         if (isPlaying) return;
-        const pos = getPos(e);
-        selectedPlayer = players.find(p => Math.hypot(p.x - pos.x, p.y - pos.y) < 0.12);
-        if (selectedPlayer) {
-            tg.HapticFeedback.impactOccurred('medium');
-        }
-        if (e.cancelable) e.preventDefault();
+        const p = getTouch(e);
+        selected = players.find(pl => Math.hypot(pl.x - p.x, pl.y - p.y) < 0.1);
+        if (selected) tg.HapticFeedback.impactOccurred('light');
     };
 
-    const moveAction = (e) => {
-        if (!selectedPlayer || isPlaying) return;
-        const pos = getPos(e);
-        selectedPlayer.x = Math.max(0, Math.min(1, pos.x));
-        selectedPlayer.y = Math.max(0, Math.min(1, pos.y));
+    const move = (e) => {
+        if (!selected || isPlaying) return;
+        const p = getTouch(e);
+        selected.x = Math.max(0, Math.min(1, p.x));
+        selected.y = Math.max(0, Math.min(1, p.y));
         render(players);
-        if (e.cancelable) e.preventDefault();
+        if(e.cancelable) e.preventDefault();
     };
 
-    const endAction = () => { selectedPlayer = null; };
+    canvas.addEventListener('touchstart', start, {passive: false});
+    canvas.addEventListener('touchmove', move, {passive: false});
+    canvas.addEventListener('touchend', () => { selected = null; }, {passive: false});
 
-    // Привязываем события
-    canvas.addEventListener('mousedown', startAction);
-    window.addEventListener('mousemove', moveAction);
-    window.addEventListener('mouseup', endAction);
+    // Запись
+    document.getElementById('rec-btn').onclick = function() {
+        isRecording = !isRecording;
+        this.innerText = isRecording ? "⏹ СТОП" : "⏺ ЗАПИСЬ";
+        this.style.background = isRecording ? "#e74c3c" : "#333";
+        if (!isRecording && recordedFrames.length > 0) {
+            document.getElementById('player-controls').style.display = "flex";
+            document.getElementById('timeline').max = recordedFrames.length - 1;
+            document.getElementById('total').innerText = (recordedFrames.length * 0.04).toFixed(1) + "s";
+        } else {
+            recordedFrames = [];
+        }
+    };
 
-    canvas.addEventListener('touchstart', startAction, { passive: false });
-    canvas.addEventListener('touchmove', moveAction, { passive: false });
-    canvas.addEventListener('touchend', endAction, { passive: false });
+    setInterval(() => { if(isRecording) recordedFrames.push(players.map(p => ({...p}))); }, 40);
 
-    // ЗАПИСЬ И ПЛЕЕР (остаются без изменений)
-    // ... (код кнопок rec-btn, play-btn такой же как раньше) ...
+    // Плеер
+    document.getElementById('play-btn').onclick = function() {
+        if (recordedFrames.length === 0) return;
+        isPlaying = !isPlaying;
+        this.innerText = isPlaying ? "⏸ ПАУЗА" : "▶ ПУСК";
+        if (isPlaying) {
+            const anim = setInterval(() => {
+                if (currentIdx < recordedFrames.length && isPlaying) {
+                    render(recordedFrames[currentIdx]);
+                    document.getElementById('timeline').value = currentIdx;
+                    document.getElementById('curr').innerText = (currentIdx * 0.04).toFixed(1) + "s";
+                    currentIdx++;
+                } else {
+                    clearInterval(anim);
+                    if (currentIdx >= recordedFrames.length) currentIdx = 0;
+                    isPlaying = false;
+                    this.innerText = "▶ ПУСК";
+                }
+            }, 40);
+        }
+    };
 
-    function resize() {
-        const wrapper = document.getElementById('court-wrapper');
-        canvas.width = wrapper.clientWidth;
-        canvas.height = wrapper.clientHeight;
+    document.getElementById('save-btn').onclick = () => {
+        if (recordedFrames.length === 0) return tg.showAlert("Запишите движение!");
+        tg.sendData(JSON.stringify({ frames: recordedFrames }));
+    };
+
+    function size() {
+        canvas.width = canvas.offsetWidth;
+        canvas.height = canvas.offsetHeight;
         render(players);
     }
 
-    // ИНИЦИАЛИЗАЦИЯ
     window.onload = () => {
-        // Ждем немного, чтобы мобильный браузер "проснулся"
-        setTimeout(() => {
-            resize();
-            const hash = window.location.hash;
-            if (hash.includes('data=')) {
-                const data = JSON.parse(decodeURIComponent(hash.split('data=')[1]));
-                recordedFrames = data.frames;
-                document.getElementById('player-controls').style.display = "flex";
-                document.getElementById('rec-btn').style.display = "none";
-                setupTimeline();
-                render(recordedFrames[0]);
-            }
-        }, 200);
+        size();
+        const hash = window.location.hash;
+        if (hash.includes('data=')) {
+            const d = JSON.parse(decodeURIComponent(hash.split('data=')[1]));
+            recordedFrames = d.frames;
+            document.getElementById('player-controls').style.display = "flex";
+            document.getElementById('rec-btn').style.display = "none";
+            document.getElementById('timeline').max = recordedFrames.length - 1;
+            render(recordedFrames[0]);
+        }
     };
-
-    window.addEventListener('resize', resize);
+    window.onresize = size;
 </script>
+</body>
+</html>
