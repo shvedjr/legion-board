@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body { margin: 0; background: #222; overflow: hidden; font-family: sans-serif; }
+        canvas { display: block; background-image: url('https://img.freepik.com/premium-vector/top-view-basketball-court-background_23-2148281350.jpg'); background-size: cover; }
+        #controls { position: absolute; bottom: 20px; width: 100%; text-align: center; }
+        button { padding: 10px 20px; border-radius: 8px; border: none; background: #0088cc; color: white; }
+    </style>
+</head>
+<body>
+    <canvas id="court"></canvas>
+    <div id="controls">
+        <button onclick="sendData()">Сохранить схему</button>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand(); // Развернуть на весь экран
+
+        const canvas = document.getElementById('court');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight - 80;
+
+        let players = [
+            { id: 1, x: 100, y: 100, color: 'red', label: 'PG' },
+            { id: 2, x: 200, y: 150, color: 'blue', label: 'C' }
+        ];
+
+        let selectedPlayer = null;
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            players.forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 20, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.fill();
+                ctx.fillStyle = "white";
+                ctx.fillText(p.label, p.x - 7, p.y + 5);
+            });
+        }
+
+        canvas.addEventListener('mousedown', e => {
+            selectedPlayer = players.find(p => Math.hypot(p.x - e.clientX, p.y - e.clientY) < 20);
+        });
+
+        canvas.addEventListener('mousemove', e => {
+            if (selectedPlayer) {
+                selectedPlayer.x = e.clientX;
+                selectedPlayer.y = e.clientY;
+                draw();
+            }
+        });
+
+        window.addEventListener('mouseup', () => { selectedPlayer = null; });
+
+        function sendData() {
+            // Передаем координаты игроков обратно в бот
+            tg.sendData(JSON.stringify(players));
+            tg.close();
+        }
+
+        draw();
+    </script>
+</body>
+</html>
