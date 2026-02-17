@@ -3,151 +3,178 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Legion Board</title>
+    <title>Legion Pro Board</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; touch-action: none; }
-        #canvas-container { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+        body { margin: 0; background: #000; font-family: sans-serif; overflow: hidden; touch-action: none; }
+        #canvas-container { display: flex; flex-direction: column; height: 100vh; }
         
-        /* Площадка теперь вертикальная */
+        /* Площадка */
         #court-wrapper { 
-            flex-grow: 1; position: relative; 
-            background-image: url('basketbolnaya-ploshchadka.jpg'); 
-            background-size: contain; /* Чтобы картинка вписалась целиком */
-            background-repeat: no-repeat;
-            background-position: center;
-            background-color: #004d40; /* Цвет фона, если картинка узкая */
+            flex-grow: 1; position: relative;
+            background-image: url('basketbolnaya-ploshchadka.jpg');
+            background-size: contain; background-repeat: no-repeat; background-position: center;
         }
-        
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-        
+
+        /* Панель инструментов */
+        #toolbar { 
+            background: #222; display: flex; justify-content: space-around; padding: 10px;
+            border-bottom: 1px solid #444;
+        }
+        .tool { 
+            width: 45px; height: 45px; border-radius: 5px; border: 2px solid #555;
+            background: #333; color: white; display: flex; align-items: center; justify-content: center; font-size: 20px;
+        }
+        .tool.active { border-color: #ff6b00; background: #444; }
+
         #controls { 
-            height: 80px; background: #1a1a1a; display: flex; 
-            align-items: center; justify-content: space-around; border-top: 2px solid #333; 
-            padding-bottom: env(safe-area-inset-bottom); /* Отступ для новых iPhone */
+            height: 70px; background: #1a1a1a; display: flex; 
+            align-items: center; justify-content: space-around; padding-bottom: env(safe-area-inset-bottom);
         }
-        
-        button { 
-            padding: 12px 30px; border-radius: 10px; border: none; 
-            color: white; font-weight: bold; font-size: 16px; cursor: pointer; 
-        }
-        .btn-record { background: #e74c3c; }
-        .btn-record.active { background: #2ecc71; box-shadow: 0 0 15px #2ecc71; }
+        .btn { padding: 10px 20px; border-radius: 8px; border: none; color: white; font-weight: bold; }
         .btn-save { background: #3498db; }
+        .btn-clear { background: #555; }
     </style>
 </head>
 <body>
     <div id="canvas-container">
+        <div id="toolbar">
+            <div class="tool active" onclick="setTool('move')" id="tool-move">🖐️</div>
+            <div class="tool" onclick="setTool('pass')" id="tool-pass">--🏀</div> <div class="tool" onclick="setTool('run')" id="tool-run">➡️</div> <div class="tool" onclick="setTool('screen')" id="tool-screen">┳</div> </div>
         <div id="court-wrapper"><canvas id="court"></canvas></div>
         <div id="controls">
-            <button id="recBtn" class="btn-record" onclick="toggleRecord()">⏺ ЗАПИСЬ</button>
-            <button id="saveBtn" class="btn-save" onclick="sendData()">💾 СОХРАНИТЬ</button>
+            <button class="btn btn-clear" onclick="clearBoard()">ОЧИСТИТЬ</button>
+            <button class="btn btn-save" onclick="sendData()">СОХРАНИТЬ СХЕМУ</button>
         </div>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
-        tg.expand();
-
         const canvas = document.getElementById('court');
         const ctx = canvas.getContext('2d');
-        
-        let isRecording = false;
-        let animationData = [];
-        
-        // Начальные позиции игроков (уже под вертикальную ориентацию)
+        let tool = 'move';
+        let drawings = []; // Здесь храним все стрелки и заслоны
         let players = [
-            { id: 1, x: 0.5, y: 0.9, label: '1' },
-            { id: 2, x: 0.2, y: 0.8, label: '2' },
-            { id: 3, x: 0.8, y: 0.8, label: '3' },
-            { id: 4, x: 0.3, y: 0.6, label: '4' },
-            { id: 5, x: 0.7, y: 0.6, label: '5' }
+            { id: 1, x: 0.5, y: 0.8, label: '1', ball: true },
+            { id: 2, x: 0.3, y: 0.7, label: '2' },
+            { id: 3, x: 0.7, y: 0.7, label: '3' },
+            { id: 4, x: 0.2, y: 0.4, label: '4' },
+            { id: 5, x: 0.8, y: 0.4, label: '5' }
         ];
+
+        function setTool(t) {
+            tool = t;
+            document.querySelectorAll('.tool').forEach(el => el.classList.remove('active'));
+            document.getElementById('tool-' + t).classList.add('active');
+        }
+
+        function drawArrow(start, end, type) {
+            ctx.beginPath();
+            ctx.moveTo(start.x * canvas.width, start.y * canvas.height);
+            ctx.lineTo(end.x * canvas.width, end.y * canvas.height);
+            
+            if (type === 'pass') ctx.setLineDash([10, 10]); // Пунктир для паса
+            else ctx.setLineDash([]);
+            
+            ctx.strokeStyle = type === 'screen' ? '#f1c40f' : 'white';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+
+            // Рисуем наконечник или планку заслона
+            const angle = Math.atan2((end.y - start.y) * canvas.height, (end.x - start.x) * canvas.width);
+            ctx.setLineDash([]);
+            if (type === 'screen') {
+                // Планка заслона (Т-образная)
+                ctx.save();
+                ctx.translate(end.x * canvas.width, end.y * canvas.height);
+                ctx.rotate(angle);
+                ctx.moveTo(0, -15); ctx.lineTo(0, 15); ctx.stroke();
+                ctx.restore();
+            } else {
+                // Стрелка
+                ctx.save();
+                ctx.translate(end.x * canvas.width, end.y * canvas.height);
+                ctx.rotate(angle);
+                ctx.moveTo(0, 0); ctx.lineTo(-15, -10); ctx.moveTo(0, 0); ctx.lineTo(-15, 10);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            players.forEach(p => {
-                const px = p.x * canvas.width;
-                const py = p.y * canvas.height;
-                
-                // Тень
-                ctx.beginPath(); ctx.arc(px + 2, py + 2, 20, 0, Math.PI*2);
-                ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.fill();
+            
+            // 1. Рисуем все стрелки
+            drawings.forEach(d => drawArrow(d.start, d.end, d.type));
 
-                // Игрок
+            // 2. Рисуем игроков
+            players.forEach(p => {
+                const px = p.x * canvas.width; const py = p.y * canvas.height;
                 ctx.beginPath(); ctx.arc(px, py, 20, 0, Math.PI*2);
                 ctx.fillStyle = "#ff6b00"; ctx.fill();
                 ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke();
-                
-                // Номер
-                ctx.fillStyle = "white"; ctx.font = "bold 18px Arial"; ctx.textAlign = "center";
-                ctx.fillText(p.label, px, py + 7);
+                ctx.fillStyle = "white"; ctx.font = "bold 16px Arial"; ctx.textAlign = "center";
+                ctx.fillText(p.label, px, py + 6);
+                if (p.ball) { // Мяч у игрока
+                    ctx.beginPath(); ctx.arc(px + 15, py - 15, 8, 0, Math.PI*2);
+                    ctx.fillStyle = "#f39c12"; ctx.fill(); ctx.stroke();
+                }
             });
         }
 
-        function toggleRecord() {
-            isRecording = !isRecording;
-            const btn = document.getElementById('recBtn');
-            btn.innerText = isRecording ? "⏹ СТОП" : "⏺ ЗАПИСЬ";
-            btn.classList.toggle('active');
-            if (isRecording) {
-                animationData = [];
-                tg.HapticFeedback.impactOccurred('medium');
-            }
-        }
+        let isDrawing = false;
+        let startPoint = null;
+        let selectedPlayer = null;
 
-        setInterval(() => {
-            if (isRecording) {
-                animationData.push(players.map(p => ({x: p.x.toFixed(3), y: p.y.toFixed(3)})));
-            }
-        }, 150);
-
-        let selected = null;
-        function getCoords(e) {
-            const t = e.touches ? e.touches[0] : e;
+        canvas.addEventListener('touchstart', e => {
             const rect = canvas.getBoundingClientRect();
-            return { x: (t.clientX - rect.left) / canvas.width, y: (t.clientY - rect.top) / canvas.height };
-        }
+            const touch = e.touches[0];
+            const x = (touch.clientX - rect.left) / canvas.width;
+            const y = (touch.clientY - rect.top) / canvas.height;
+            
+            startPoint = {x, y};
+            selectedPlayer = players.find(p => Math.hypot(p.x - x, p.y - y) < 0.08);
 
-        const start = e => {
-            const c = getCoords(e);
-            selected = players.find(p => Math.hypot(p.x - c.x, p.y - c.y) < 0.08);
-            if(selected) tg.HapticFeedback.selectionChanged();
-        };
-        
-        const move = e => {
-            if (selected) {
-                const c = getCoords(e);
-                selected.x = Math.max(0, Math.min(1, c.x));
-                selected.y = Math.max(0, Math.min(1, c.y));
-                draw();
+            if (tool !== 'move') isDrawing = true;
+        });
+
+        canvas.addEventListener('touchmove', e => {
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
+            const x = (touch.clientX - rect.left) / canvas.width;
+            const y = (touch.clientY - rect.top) / canvas.height;
+
+            if (tool === 'move' && selectedPlayer) {
+                selectedPlayer.x = x; selectedPlayer.y = y;
             }
-        };
-
-        canvas.addEventListener('mousedown', start);
-        window.addEventListener('mousemove', move);
-        window.addEventListener('mouseup', () => selected = null);
-        canvas.addEventListener('touchstart', start);
-        window.addEventListener('touchmove', move);
-        window.addEventListener('touchend', () => selected = null);
-
-        function resize() {
-            canvas.width = canvas.offsetWidth;
-            canvas.height = canvas.offsetHeight;
             draw();
-        }
+            if (isDrawing) drawArrow(startPoint, {x, y}, tool);
+        });
+
+        canvas.addEventListener('touchend', e => {
+            if (isDrawing) {
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.changedTouches[0];
+                const x = (touch.clientX - rect.left) / canvas.width;
+                const y = (touch.clientY - rect.top) / canvas.height;
+                drawings.push({start: startPoint, end: {x, y}, type: tool});
+            }
+            isDrawing = false; selectedPlayer = null;
+            draw();
+        });
+
+        function clearBoard() { drawings = []; draw(); }
 
         function sendData() {
-            const result = {
-                animation: animationData,
-                final: players.map(p => ({label: p.label, x: p.x, y: p.y}))
-            };
-            tg.sendData(JSON.stringify(result));
+            tg.sendData(JSON.stringify({drawings, players}));
             tg.close();
         }
 
-        window.addEventListener('resize', resize);
-        resize();
+        window.addEventListener('resize', () => {
+            canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; draw();
+        });
+        window.dispatchEvent(new Event('resize'));
     </script>
 </body>
 </html>
