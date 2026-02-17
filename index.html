@@ -6,10 +6,8 @@
     <title>Legion Tactical Pro</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { margin: 0; background: #000; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; overflow: hidden; touch-action: none; color: white; }
+        body { margin: 0; background: #000; font-family: sans-serif; overflow: hidden; touch-action: none; color: white; }
         #app { display: flex; flex-direction: column; height: 100vh; }
-        
-        /* Поле */
         #court-wrapper { 
             flex-grow: 1; position: relative;
             background-image: url('basketbolnaya-ploshchadka.jpg');
@@ -17,39 +15,31 @@
             background-color: #002d20;
         }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; }
-
-        /* Панель управления плеером */
         #player-controls { 
             background: #1a1a1a; padding: 15px; display: flex; flex-direction: column; gap: 12px;
-            border-top: 1px solid #333; display: none; /* Скрыт по умолчанию, виден в режиме просмотра */
+            border-top: 1px solid #333; display: none; 
         }
         .row { display: flex; justify-content: space-around; align-items: center; }
-        
         input[type=range] { flex-grow: 1; margin: 0 15px; accent-color: #ff6b00; }
-        
-        .btn { padding: 10px 18px; border-radius: 8px; border: none; background: #333; color: white; font-weight: bold; cursor: pointer; }
-        .btn:active { transform: scale(0.95); }
+        .btn { padding: 10px 18px; border-radius: 8px; border: none; background: #333; color: white; font-weight: bold; }
         .btn-orange { background: #ff6b00; }
         .speed-btn { width: 45px; font-size: 11px; border: 1px solid #444; }
-        .speed-btn.active { background: #ff6b00; border-color: #fff; }
-
+        .speed-btn.active { background: #ff6b00; }
         #main-nav { 
             height: 75px; background: #111; display: flex; justify-content: space-around; 
             align-items: center; padding-bottom: env(safe-area-inset-bottom);
         }
-        .status-tag { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 5px 10px; border-radius: 5px; font-size: 12px; z-index: 10; }
     </style>
 </head>
 <body>
     <div id="app">
-        <div class="status-tag" id="mode-status">Режим: Редактор</div>
         <div id="court-wrapper"><canvas id="court"></canvas></div>
         
         <div id="player-controls">
             <div class="row">
-                <span id="current-time" style="font-family: monospace;">0.0s</span>
+                <span id="current-time">0.0s</span>
                 <input type="range" id="timeline" min="0" value="0" step="1" oninput="manualSeek(this.value)">
-                <span id="total-time" style="font-family: monospace;">0.0s</span>
+                <span id="total-time">0.0s</span>
             </div>
             <div class="row">
                 <button class="btn btn-orange" onclick="togglePlay()" id="play-btn">▶ PLAY</button>
@@ -61,7 +51,7 @@
         </div>
 
         <div id="main-nav">
-            <button class="btn" id="rec-btn" onclick="toggleRecording()" style="background: #444;">⏺ ЗАПИСЬ</button>
+            <button class="btn" id="rec-btn" onclick="toggleRecording()">⏺ ЗАПИСЬ</button>
             <button class="btn btn-orange" onclick="saveToBot()">💾 СОХРАНИТЬ</button>
         </div>
     </div>
@@ -72,7 +62,6 @@
 
         const canvas = document.getElementById('court');
         const ctx = canvas.getContext('2d');
-        const modeStatus = document.getElementById('mode-status');
         const playerControls = document.getElementById('player-controls');
 
         let players = [
@@ -90,7 +79,6 @@
         let playbackSpeed = 1;
         let playInterval;
 
-        // --- ИНИЦИАЛИЗАЦИЯ (ПРОВЕРКА АРХИВА) ---
         window.onload = () => {
             const hash = window.location.hash;
             if (hash && hash.includes('data=')) {
@@ -99,39 +87,28 @@
                     const data = JSON.parse(jsonStr);
                     if (data.frames) {
                         recordedFrames = data.frames;
-                        modeStatus.innerText = "Режим: Просмотр (Архив)";
                         playerControls.style.display = "flex";
                         document.getElementById('rec-btn').style.display = "none";
                         initTimeline();
                         draw(recordedFrames[0]);
                     }
-                } catch (e) {
-                    console.error("Ошибка загрузки данных:", e);
-                }
-            } else {
-                draw(players);
-            }
+                } catch (e) { console.error(e); }
+            } else { draw(players); }
         };
 
-        // --- РИСОВАНИЕ ---
         function draw(positions) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             positions.forEach(p => {
                 const px = p.x * canvas.width;
                 const py = p.y * canvas.height;
-                
-                // Игрок
                 ctx.beginPath(); ctx.arc(px, py, 22, 0, Math.PI*2);
                 ctx.fillStyle = "#ff6b00"; ctx.fill();
                 ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke();
-                
-                // Номер
                 ctx.fillStyle = "white"; ctx.font = "bold 18px Arial"; ctx.textAlign = "center";
                 ctx.fillText(p.label, px, py + 7);
             });
         }
 
-        // --- ЛОГИКА ЗАПИСИ ---
         function toggleRecording() {
             isRecording = !isRecording;
             const btn = document.getElementById('rec-btn');
@@ -150,13 +127,41 @@
             }
         }
 
+        // Цикл записи (теперь он просто сохраняет текущее состояние players)
         setInterval(() => {
             if (isRecording) {
                 recordedFrames.push(players.map(p => ({x: p.x, y: p.y, label: p.label})));
             }
-        }, 30); // ~33 кадра в секунду
+        }, 30);
 
-        // --- ПЛЕЕР ---
+        // --- ИСПРАВЛЕННЫЙ ТАЧ (РАБОТАЕТ ВСЕГДА, КРОМЕ PLAY) ---
+        let selected = null;
+        const getXY = e => {
+            const rect = canvas.getBoundingClientRect();
+            const t = e.touches ? e.touches[0] : e;
+            return { x: (t.clientX - rect.left) / canvas.width, y: (t.clientY - rect.top) / canvas.height };
+        };
+
+        canvas.addEventListener('touchstart', e => {
+            if (isPlaying) return; // Во время просмотра двигать нельзя
+            const pos = getXY(e);
+            // Ищем игрока
+            selected = players.find(p => Math.hypot(p.x - pos.x, p.y - pos.y) < 0.08);
+            if (selected) tg.HapticFeedback.impactOccurred('light');
+        });
+
+        canvas.addEventListener('touchmove', e => {
+            if (selected && !isPlaying) {
+                const pos = getXY(e);
+                selected.x = Math.max(0, Math.min(1, pos.x));
+                selected.y = Math.max(0, Math.min(1, pos.y));
+                draw(players); // Перерисовываем текущие позиции
+            }
+        });
+
+        canvas.addEventListener('touchend', () => { selected = null; });
+
+        // --- ФУНКЦИИ ПЛЕЕРА ---
         function initTimeline() {
             const slider = document.getElementById('timeline');
             slider.max = recordedFrames.length - 1;
@@ -209,36 +214,9 @@
             if (isPlaying) togglePlay();
         }
 
-        // --- ПЕРЕМЕЩЕНИЕ (Drag & Drop) ---
-        let selected = null;
-        const getXY = e => {
-            const rect = canvas.getBoundingClientRect();
-            const t = e.touches ? e.touches[0] : e;
-            return { x: (t.clientX - rect.left) / canvas.width, y: (t.clientY - rect.top) / canvas.height };
-        };
-
-        canvas.addEventListener('touchstart', e => {
-            if (isPlaying) return;
-            const pos = getXY(e);
-            selected = players.find(p => Math.hypot(p.x - pos.x, p.y - pos.y) < 0.07);
-            if (selected) tg.HapticFeedback.impactOccurred('light');
-        });
-
-        canvas.addEventListener('touchmove', e => {
-            if (selected && !isPlaying) {
-                const pos = getXY(e);
-                selected.x = Math.max(0, Math.min(1, pos.x));
-                selected.y = Math.max(0, Math.min(1, pos.y));
-                draw(players);
-            }
-        });
-
-        canvas.addEventListener('touchend', () => selected = null);
-
-        // --- ОТПРАВКА В БОТ ---
         function saveToBot() {
             if (recordedFrames.length === 0) {
-                tg.showAlert("Сначала запишите движение (нажмите ⏺ ЗАПИСЬ)");
+                tg.showAlert("Запишите движение!");
                 return;
             }
             tg.sendData(JSON.stringify({ frames: recordedFrames }));
