@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Legion Tactics Ultimate</title>
+    <title>Legion Tactics Fix</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
+        * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
         body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; position: fixed; font-family: sans-serif; }
         #app { display: flex; flex-direction: column; height: 100%; width: 100%; }
         #court-wrapper { position: relative; flex: 1; background-image: url('basketbolnaya-ploshchadka.jpg'); background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #002d20; }
@@ -15,6 +16,7 @@
         .tool-btn.active { border-color: #ff6b00; background: #333; color: #ff6b00; }
         #controls-area { background: #111; padding-bottom: env(safe-area-inset-bottom); z-index: 100; }
         #player-controls { display: none; flex-direction: column; gap: 8px; padding: 12px; border-top: 1px solid #333; }
+        #status { position: fixed; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: red; z-index: 1000; }
         .row { display: flex; justify-content: space-around; align-items: center; color: white; font-size: 14px; }
         input[type=range] { flex: 1; margin: 0 15px; accent-color: #ff6b00; }
         #main-nav { height: 75px; display: flex; justify-content: space-around; align-items: center; }
@@ -22,12 +24,13 @@
         .btn-orange { background: #ff6b00; color: black; }
     </style>
 </head>
-<body onclick="tryUnlockAudio()">
+<body>
+    <div id="status"></div>
     <div id="app">
         <div id="toolbar">
-            <button class="tool-btn active" id="t-move" onclick="setTool('move')">🏃 ИГРОКИ</button>
-            <button class="tool-btn" id="t-ball" onclick="setTool('ball')">🏀 МЯЧ</button>
-            <button class="tool-btn" id="t-screen" onclick="setTool('screen')">┳ ЗАСЛОН</button>
+            <button class="tool-btn active" id="t-move">🏃 ИГРОКИ</button>
+            <button class="tool-btn" id="t-ball">🏀 МЯЧ</button>
+            <button class="tool-btn" id="t-screen">┳ ЗАСЛОН</button>
             <button class="tool-btn" style="color:#e74c3c" onclick="undo()">↩ НАЗАД</button>
         </div>
         <div id="court-wrapper"><canvas id="court"></canvas></div>
@@ -35,16 +38,16 @@
             <div id="player-controls">
                 <div class="row">
                     <span id="curr">0.0s</span>
-                    <input type="range" id="timeline" min="0" value="0" oninput="seek(this.value)">
+                    <input type="range" id="timeline" min="0" value="0">
                     <span id="total">0.0s</span>
                 </div>
                 <div class="row">
-                    <button class="btn btn-orange" id="play-btn" onclick="togglePlay()">▶ ПУСК</button>
+                    <button class="btn btn-orange" id="play-btn">▶ ПУСК</button>
                     <button class="btn" onclick="location.reload()">🔄 СБРОС</button>
                 </div>
             </div>
             <div id="main-nav">
-                <button class="btn" id="rec-btn" onclick="toggleRec()">⏺ ЗАПИСЬ</button>
+                <button class="btn" id="rec-btn">⏺ ЗАПИСЬ</button>
                 <button class="btn btn-orange" onclick="saveData()">💾 СОХРАНИТЬ</button>
             </div>
         </div>
@@ -55,40 +58,39 @@
     tg.ready();
     tg.expand();
 
+    // Проверка статуса Haptic
+    if (tg.HapticFeedback) {
+        document.getElementById('status').style.background = 'green';
+    }
+
     const canvas = document.getElementById('court');
     const ctx = canvas.getContext('2d');
     
-    // Попытка разблокировать аудио-тактику для Pixel
-    let audioCtx = null;
-    function tryUnlockAudio() {
-        if (!audioCtx) {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
+    // ПРИНУДИТЕЛЬНАЯ ВИБРАЦИЯ ДЛЯ PIXEL
+    function pixelVibe(type = 'medium') {
+        try {
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.impactOccurred(type);
+                // Повтор через 10мс для усиления эффекта на Android
+                setTimeout(() => tg.HapticFeedback.impactOccurred(type), 10);
+            }
+            if (navigator.vibrate) {
+                navigator.vibrate(40);
+            }
+        } catch (e) {}
     }
 
-    // Супер-комбо вибрация
-    function forceVibrate(style) {
-        // 1. Метод Telegram
-        if (tg.HapticFeedback) {
-            if (style === 'success') tg.HapticFeedback.notificationOccurred('success');
-            else tg.HapticFeedback.impactOccurred(style || 'medium');
-        }
-        // 2. Стандартный метод (Pixel/Android)
-        if (navigator.vibrate) {
-            navigator.vibrate(style === 'success' ? [30, 50, 30] : 45);
-        }
-        // 3. Audio Hack (Pixel-специфично)
-        if (audioCtx && audioCtx.state === 'running') {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(1, audioCtx.currentTime); // Инфразвук для мотора
-            gain.gain.setValueAtTime(0.01, audioCtx.currentTime);
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.05);
-        }
+    // Привязка кнопок (убрали инлайновые onclick для надежности)
+    document.getElementById('t-move').onclick = () => { tool = 'move'; updateTools(); pixelVibe('light'); };
+    document.getElementById('t-ball').onclick = () => { tool = 'ball'; updateTools(); pixelVibe('light'); };
+    document.getElementById('t-screen').onclick = () => { tool = 'screen'; updateTools(); pixelVibe('light'); };
+    document.getElementById('rec-btn').onclick = () => toggleRec();
+    document.getElementById('play-btn').onclick = () => togglePlay();
+    document.getElementById('timeline').oninput = (e) => seek(e.target.value);
+
+    function updateTools() {
+        document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('t-' + tool).classList.add('active');
     }
 
     let tool = 'move';
@@ -97,32 +99,8 @@
         { id: 3, x: 0.7, y: 0.7, label: '3' }, { id: 4, x: 0.2, y: 0.4, label: '4' },
         { id: 5, x: 0.8, y: 0.4, label: '5' }
     ];
-    let ballId = 1;
-    let screens = [];
-    let history = [];
-    let recordedFrames = [];
-    let isRec = false; let isPlay = false; let currentIdx = 0;
-    let activeTouches = {}; 
-
-    function saveState() {
-        history.push(JSON.stringify({ players, screens, ballId }));
-        if (history.length > 30) history.shift();
-    }
-
-    function undo() {
-        if (history.length === 0) return;
-        forceVibrate('light');
-        const last = JSON.parse(history.pop());
-        players = last.players; screens = last.screens; ballId = last.ballId;
-        render(players, screens, ballId);
-    }
-
-    function setTool(t) {
-        forceVibrate('light');
-        tool = t;
-        document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-        document.getElementById('t-' + t).classList.add('active');
-    }
+    let ballId = 1; let screens = []; let history = []; let recordedFrames = [];
+    let isRec = false; let isPlay = false; let currentIdx = 0; let activeTouches = {}; 
 
     function render(pos, scs, bId) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -133,17 +111,12 @@
         });
         pos.forEach(p => {
             const px = p.x * canvas.width; const py = p.y * canvas.height;
-            
-            // Основной круг
             ctx.beginPath(); ctx.arc(px, py, 22, 0, Math.PI*2);
             ctx.fillStyle = "#bdc3c7"; ctx.fill();
-            
-            // Визуальный отклик (оранжевая рамка)
             let isMoving = Object.values(activeTouches).some(t => t.target === p);
             ctx.strokeStyle = isMoving ? "#ff6b00" : "#000"; 
-            ctx.lineWidth = isMoving ? 6 : 3; 
+            ctx.lineWidth = isMoving ? 5 : 3; 
             ctx.stroke();
-            
             ctx.fillStyle = "#000"; ctx.font = "bold 16px Arial"; ctx.textAlign = "center";
             ctx.fillText(p.label, px, py + 6);
             if (p.id === bId) {
@@ -156,7 +129,6 @@
     canvas.addEventListener('touchstart', (e) => {
         if (isPlay) return;
         saveState();
-        tryUnlockAudio();
         for (let i = 0; i < e.changedTouches.length; i++) {
             const touch = e.changedTouches[i];
             const r = canvas.getBoundingClientRect();
@@ -164,16 +136,16 @@
             
             if (tool === 'ball') {
                 const hit = players.find(pl => Math.hypot(pl.x - p.x, pl.y - p.y) < 0.1);
-                if (hit) { ballId = hit.id; forceVibrate('success'); }
+                if (hit) { ballId = hit.id; pixelVibe('medium'); }
             } else if (tool === 'screen') {
                 const hit = screens.find(s => Math.hypot(s.x - p.x, s.y - p.y) < 0.08);
-                if (hit) { activeTouches[touch.identifier] = { target: hit }; forceVibrate('medium'); }
-                else { let n = {x: p.x, y: p.y}; screens.push(n); activeTouches[touch.identifier] = { target: n }; forceVibrate('medium'); }
+                if (hit) { activeTouches[touch.identifier] = { target: hit }; pixelVibe('medium'); }
+                else { let n = {x: p.x, y: p.y}; screens.push(n); activeTouches[touch.identifier] = { target: n }; pixelVibe('medium'); }
             } else {
                 const hit = players.find(pl => Math.hypot(pl.x - p.x, pl.y - p.y) < 0.1);
                 if (hit) {
                     activeTouches[touch.identifier] = { target: hit };
-                    forceVibrate('heavy'); // Усиленный импульс для Pixel
+                    pixelVibe('heavy'); // МАКСИМАЛЬНЫЙ ОТКЛИК ДЛЯ PIXEL
                 }
             }
         }
@@ -201,8 +173,21 @@
         render(players, screens, ballId);
     });
 
+    function saveState() {
+        history.push(JSON.stringify({ players, screens, ballId }));
+        if (history.length > 30) history.shift();
+    }
+
+    function undo() {
+        if (history.length === 0) return;
+        pixelVibe('light');
+        const last = JSON.parse(history.pop());
+        players = last.players; screens = last.screens; ballId = last.ballId;
+        render(players, screens, ballId);
+    }
+
     function toggleRec() {
-        forceVibrate('medium');
+        pixelVibe('medium');
         isRec = !isRec;
         const btn = document.getElementById('rec-btn');
         btn.innerText = isRec ? "⏹ СТОП" : "⏺ ЗАПИСЬ";
@@ -218,7 +203,7 @@
     }, 40);
 
     function togglePlay() {
-        forceVibrate('light');
+        pixelVibe('light');
         isPlay = !isPlay;
         if (isPlay) {
             const anim = setInterval(() => {
@@ -235,7 +220,7 @@
     function seek(v) { currentIdx = parseInt(v); if(recordedFrames[currentIdx]) { const f = recordedFrames[currentIdx]; render(f.pos, f.scs, f.bId); } }
 
     function saveData() {
-        forceVibrate('success');
+        pixelVibe('medium');
         if (recordedFrames.length === 0) return tg.showAlert("Запишите движение!");
         tg.sendData(JSON.stringify({ frames: recordedFrames }));
         tg.close();
@@ -243,13 +228,7 @@
 
     window.onload = () => {
         canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight;
-        const hash = window.location.hash;
-        if (hash.includes('data=')) {
-            recordedFrames = JSON.parse(decodeURIComponent(hash.split('data=')[1])).frames;
-            document.getElementById('player-controls').style.display = "flex";
-            document.getElementById('rec-btn').style.display = "none";
-            seek(0);
-        } else { render(players, screens, ballId); }
+        render(players, screens, ballId);
     };
 </script>
 </body>
